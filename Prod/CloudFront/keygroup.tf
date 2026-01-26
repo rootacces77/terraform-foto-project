@@ -8,7 +8,7 @@ data "aws_kms_public_key" "by_alias_arn" {
 resource "aws_cloudfront_public_key" "gallery_signer" {
   name        = "cf-key"
   comment     = "Public key used to validate signed cookies/URLs for gallery access."
-  encoded_key = data.aws_kms_public_key.by_alias_arn
+  encoded_key = data.aws_kms_public_key.by_alias_arn.public_key
 }
 
 ############################################################
