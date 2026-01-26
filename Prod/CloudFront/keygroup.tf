@@ -1,14 +1,14 @@
 ############################################################
 # CloudFront Public Key
 ############################################################
-data "aws_kms_public_key" "by_alias_arn" {
+/*data "aws_kms_public_key" "by_alias_arn" {
   key_id = var.cf_public_key_arn
-}
+} */
 
 resource "aws_cloudfront_public_key" "gallery_signer" {
   name        = "cf-key"
   comment     = "Public key used to validate signed cookies/URLs for gallery access."
-  encoded_key = data.aws_kms_public_key.by_alias_arn.public_key
+  encoded_key = var.cf_public_key_pem
 }
 
 ############################################################

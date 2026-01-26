@@ -43,11 +43,18 @@ variable "folder_prefix" {
 }
 
 
-
+/*
 
 variable "cf_public_key_arn" {
     type = string
     description = "CF Public Key ARN"
+  
+}
+
+*/
+
+variable "cf_public_key_pem" {
+    type = string
   
 }
 variable "cf_key_group_name" {

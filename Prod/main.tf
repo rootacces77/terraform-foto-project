@@ -93,7 +93,8 @@ module "cloudfront" {
     gallery_bucket_regional_domain_name = module.s3.gallery_bucket_regional_domain_name
     website_bucket_regional_domain_name = module.s3.website_bucket_regional_domain_name
 
-    cf_public_key_arn = module.kms.cf_public_key_arn
+  #  cf_public_key_arn = module.kms.cf_public_key_arn
+    cf_public_key_pem = module.kms.cf_public_key_pem
 
 }
 
