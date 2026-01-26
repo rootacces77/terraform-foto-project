@@ -10,7 +10,7 @@ terraform {
 }
 
 provider "aws" {
-  region  = "eu-south-1"
+  region  = "us-east-1"
   profile = "root"
 
   shared_config_files      = ["~/.aws/config"]

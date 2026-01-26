@@ -2,7 +2,7 @@ module "tf_state_bucket" {
   source  = "terraform-aws-modules/s3-bucket/aws"
   version = "~> 5.0"
 
-  bucket = "tf-state-project-practice77"
+  bucket = "tf-state-project-practice77-123"
 
   # Versioning
   versioning = {

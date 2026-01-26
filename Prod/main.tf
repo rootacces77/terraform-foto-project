@@ -1,6 +1,8 @@
 module "acm" {
     source = "./ACM"
-    providers = aws.us-east-1
+    providers = {
+      aws = aws.us-east-1
+    }
 
     www_domain = local.www_domain
     apex_domain = local.apex_domain
@@ -11,7 +13,9 @@ module "acm" {
 }
 module "secretmanager" {
     source = "./SecretManager"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     lambda_role_arn = module.lambda.lambda_role_arn
   
@@ -19,7 +23,9 @@ module "secretmanager" {
 
 module "kms" {
     source = "./KMS"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     secret_manager_pk_id = module.secretmanager.secret_manager_pk_id
   
@@ -27,7 +33,9 @@ module "kms" {
 
 module "iam" {
     source = "./IAM"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     identity_center_user_email = local.identity_center_user_email
 
@@ -38,13 +46,17 @@ module "iam" {
 
 module "s3" {
     source = "./S3"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
   
 }
 
 module "lambda" {
     source = "./Lambda"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     lambda_bucket_name = module.s3.lambda_bucket_name
 
@@ -61,7 +73,9 @@ module "lambda" {
 
 module "apigateway" {
     source = "./APIGateway"
-    providers = aws.eu-south-1
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     lambda_cookie_generator_arn  = module.lambda.lambda_role_arn
     lambda_cookie_generator_name = module.lambda.lambda_cookie_generator_name
@@ -70,7 +84,9 @@ module "apigateway" {
 
 module "cloudfront" {
     source = "./CloudFront"
-    providers = aws.us-east-1
+    providers = {
+      aws = aws.us-east-1
+    }
 
     acm_certificate_arn = module.acm.cf_cert_arn
     
@@ -100,7 +116,9 @@ module  "route53" {
 }
 
 module "organization" {
-    providers = aws.us-east-1
+    providers = {
+      aws = aws.us-east-1
+    }
     source = "./Organization"
   
 }
