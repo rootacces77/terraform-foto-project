@@ -34,7 +34,7 @@ module "kms" {
 module "iam" {
     source = "./IAM"
     providers = {
-      aws = aws.eu-south-1
+      aws = aws.us-east-1
     }
 
     identity_center_user_email = local.identity_center_user_email

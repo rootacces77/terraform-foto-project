@@ -25,7 +25,7 @@ resource "aws_cloudfront_distribution" "gallery" {
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
     # Enforce signed cookies/URLs via trusted key group
-    trusted_key_groups = [aws_cloudfront_key_group.gallery_signer]
+    trusted_key_groups = [aws_cloudfront_key_group.gallery_signer.id]
 
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
