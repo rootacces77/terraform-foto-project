@@ -26,7 +26,7 @@ resource "aws_route53_record" "prod_cf_validation" {
 
   # Turn the set(domain_validation_options) into a map keyed by domain_name
   for_each = {
-    for dvo in aws_acm_certificate.prod_cd.domain_validation_options :
+    for dvo in aws_acm_certificate.prod_cf.domain_validation_options :
     dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
