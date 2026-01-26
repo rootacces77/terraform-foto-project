@@ -24,7 +24,17 @@ variable "admin_sub_domain" {
 }
 
 # Your CloudFront distribution
-variable "cloudfront_domain_name" {
+variable "cloudfront_admin_domain_name" {
+  description = "CloudFront distribution domain name, e.g. d123abcd.cloudfront.net"
+  type        = string
+}
+# Your CloudFront distribution
+variable "cloudfront_web_domain_name" {
+  description = "CloudFront distribution domain name, e.g. d123abcd.cloudfront.net"
+  type        = string
+}
+# Your CloudFront distribution
+variable "cloudfront_gallery_domain_name" {
   description = "CloudFront distribution domain name, e.g. d123abcd.cloudfront.net"
   type        = string
 }

@@ -1,0 +1,35 @@
+name: Terraform Deploy 
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  prod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC 
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::238407199949:role/GitHubActionsTerraformRole
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init 
+        working-directory: Prod                # << ROOT DIR for Prod stack
+        run: terraform init -input=false
+
+      - name: Terraform Plan 
+        working-directory: Prod 
+        run: terraform plan -input=false
+
+      - name: Terraform Apply 
+        if: github.ref == 'refs/heads/main'
+        working-directory: Prod 
+        run: terraform apply -auto-approve -input=false

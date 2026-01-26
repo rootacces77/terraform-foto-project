@@ -7,9 +7,7 @@ locals {
      domain_zone_id = data.aws_route53_zone.main.zone_id
 
      identity_center_user_email = "project.practice77@gmail.com"
-     target_account_id  =
-     signer_api_execute_arn
-
+     target_account_id  =  data.aws_caller_identity.current.account_id
      lambda_zip_path = "lambda.zip"
 }
 
@@ -17,3 +15,5 @@ data "aws_route53_zone" "main" {
   name         = local.apex_domain
   private_zone = false
 }
+
+data "aws_caller_identity" "current" {}

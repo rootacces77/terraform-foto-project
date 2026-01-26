@@ -14,7 +14,7 @@ variable "gallery_retention_days" {
   default     = 30
 
   validation {
-    condition     = var.retention_days >= 1 && var.retention_days <= 3650
+    condition     = var.gallery_retention_days >= 1 && var.gallery_retention_days <= 3650
     error_message = "retention_days must be between 1 and 3650."
   }
 }

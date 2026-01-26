@@ -22,15 +22,18 @@ variable "price_class" {
   default     = "PriceClass_100"
 }
 
+/*
 variable "aliases" {
   type        = list(string)
   description = "Custom domain names for CloudFront (e.g. [\"app.example.com\"])"
 }
 
+
 variable "trusted_key_group_id" {
   description = "CloudFront Key Group ID used to validate signed cookies for gallery paths."
   type        = string
 }
+*/
 
 variable "folder_prefix" {
     type = string
@@ -53,3 +56,22 @@ variable "cf_key_group_name" {
     default = "cf-keygroup"
 }
 
+
+
+/*
+variable "admin_alias" {
+     type = string
+     default = "value"
+  
+}
+
+variable "gallery_alias" {
+     type = string
+
+}
+
+variable "web_alias" {
+    type = string 
+  
+}
+*/

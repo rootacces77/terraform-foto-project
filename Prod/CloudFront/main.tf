@@ -6,6 +6,7 @@ resource "aws_cloudfront_origin_access_control" "oac" {
   signing_protocol                  = "sigv4"
 }
 
+/*
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   is_ipv6_enabled = true
@@ -14,7 +15,7 @@ resource "aws_cloudfront_distribution" "this" {
   # Serve website bucket /web/index.html by default
   default_root_object = "web/index.html"
 
-  aliases = var.aliases
+ # aliases = var.aliases
 
   # -----------------------
   # Origins
@@ -124,3 +125,4 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 }
+*/

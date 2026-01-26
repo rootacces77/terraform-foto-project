@@ -13,7 +13,7 @@ resource "aws_route53_record" "web_a" {
   type    = "A"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_web_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
@@ -25,7 +25,7 @@ resource "aws_route53_record" "web_aaaa" {
   type    = "AAAA"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_web_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
@@ -40,7 +40,7 @@ resource "aws_route53_record" "admin_a" {
   type    = "A"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_admin_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
@@ -52,7 +52,7 @@ resource "aws_route53_record" "admin_aaaa" {
   type    = "AAAA"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_admin_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
@@ -67,7 +67,7 @@ resource "aws_route53_record" "gallery_a" {
   type    = "A"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_gallery_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
@@ -79,7 +79,7 @@ resource "aws_route53_record" "gallery_aaaa" {
   type    = "AAAA"
 
   alias {
-    name                   = var.cloudfront_domain_name
+    name                   = var.cloudfront_gallery_domain_name
     zone_id                = var.cloudfront_hosted_zone_id
     evaluate_target_health = false
   }
