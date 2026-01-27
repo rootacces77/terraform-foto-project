@@ -13,7 +13,7 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     }
 
     actions   = ["s3:GetObject"]
-    resources = ["${module.static_site_bucket.s3_bucket_arn}/*"]
+    resources = ["${website_bucket_arn}/*"]
 
     condition {
       test     = "StringEquals"
@@ -38,8 +38,8 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     actions = ["s3:*"]
 
     resources = [
-      module.static_site_bucket.s3_bucket_arn,
-      "${module.static_site_bucket.s3_bucket_arn}/*"
+      website_bucket_arn,
+      "${website_bucket_arn}/*"
     ]
 
     condition {
@@ -51,6 +51,6 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
 }
 
 resource "aws_s3_bucket_policy" "this" {
-  bucket = module.static_site_bucket.s3_bucket_id
+  bucket = var.website_bucket_name
   policy = data.aws_iam_policy_document.s3_bucket_policy_cloudfront_oac.json
 }
