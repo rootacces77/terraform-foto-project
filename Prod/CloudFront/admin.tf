@@ -10,12 +10,13 @@ resource "aws_cloudfront_distribution" "admin" {
   aliases = [var.admin_alias]
 
   # / -> /admin/index.html
-  default_root_object = "admin/index.html"
+  default_root_object = "index.html"
 
   origin {
     origin_id                = "s3-website-origin"
     domain_name              = var.website_bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
+    origin_path = "/admin"
   }
 
   default_cache_behavior {
