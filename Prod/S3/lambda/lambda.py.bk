@@ -1,10 +1,40 @@
+"""
+Lambda: CloudFront signed-cookie "share" endpoint
+
+Purpose
+- Accepts parameters:
+  - folder: e.g. "/clients/client123/job456/" (or "clients/client123/job456/")
+  - cookie_retention_seconds: e.g. 604800 (7 days)
+- Returns:
+  - 302 redirect to the gallery URL
+  - Set-Cookie headers:
+      CloudFront-Policy, CloudFront-Signature, CloudFront-Key-Pair-Id
+
+Dependencies
+- Requires the "cryptography" package.
+  Easiest: add it via a Lambda Layer (or package it into the deployment artifact).
+
+Environment Variables (required)
+- CLOUDFRONT_DOMAIN                 e.g. "photos.example.com"
+- CLOUDFRONT_KEY_PAIR_ID            e.g. "K1234567890ABCDE"
+- CLOUDFRONT_PRIVATE_KEY_SECRET_ARN Secrets Manager secret ARN containing the PEM private key
+                                   (secret value is the PEM text)
+Environment Variables (recommended)
+- ALLOWED_FOLDER_PREFIX             default: "/clients/"
+- DEFAULT_TTL_SECONDS               default: 604800  (7 days)
+- MAX_TTL_SECONDS                   default: 1209600 (14 days)
+- REDIRECT_TO_INDEX                 default: "true"  (redirect to /index.html)
+- COOKIE_SECURE                     default: "true"
+- COOKIE_HTTPONLY                   default: "true"
+- COOKIE_SAMESITE                   default: "Lax"   (use "None" if you need cross-site)
+"""
+
 import os
 import json
 import time
 import base64
 import re
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
@@ -20,11 +50,7 @@ CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()
 CLOUDFRONT_KEY_PAIR_ID = os.environ["CLOUDFRONT_KEY_PAIR_ID"].strip()
 PRIVATE_KEY_SECRET_ARN = os.environ["CLOUDFRONT_PRIVATE_KEY_SECRET_ARN"].strip()
 
-# OPTIONAL restriction:
-# - Leave empty to allow any root folder like "client123/..."
-# - Set to something like "clients/" if you still want a single top-level namespace
-ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
-
+ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "/clients/").strip()
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "604800"))  # 7 days
 MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "1209600"))         # 14 days
 REDIRECT_TO_INDEX = os.getenv("REDIRECT_TO_INDEX", "true").lower() == "true"
@@ -32,14 +58,16 @@ REDIRECT_TO_INDEX = os.getenv("REDIRECT_TO_INDEX", "true").lower() == "true"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_HTTPONLY = os.getenv("COOKIE_HTTPONLY", "true").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax")  # Lax/Strict/None
+
+# For small admin tools you usually want session cookies (no explicit Max-Age).
+# If you want cookies to persist in the browser for the same TTL, set:
 COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "false").lower() == "true"
 
+# Optional: domain for cookies (usually your CloudFront domain)
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", CLOUDFRONT_DOMAIN).strip()
-COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
-# Where /open lives relative to API domain. If your API is behind a custom domain,
-# this default is correct.
-OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
+# Optional: restrict cookie path. "/" is simplest.
+COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
 
 # -----------------------------
@@ -75,6 +103,7 @@ def _load_private_key() -> Any:
 
     pem = resp.get("SecretString")
     if not pem:
+        # If stored as binary
         pem = base64.b64decode(resp["SecretBinary"]).decode("utf-8")
 
     key = serialization.load_pem_private_key(
@@ -86,75 +115,64 @@ def _load_private_key() -> Any:
 
 
 def _normalize_folder(folder: str) -> str:
-    """
-    Accepts:
-      - "client123"
-      - "client123/job456"
-      - "/client123/job456/"
-    Normalizes to:
-      - "/client123/"
-      - "/client123/job456/"
-    """
-    s = (folder or "").strip()
-    if not s:
+    folder = folder.strip()
+    if not folder:
         raise ValueError("folder is required")
 
-    # Treat input as a prefix at bucket root (no leading slash required)
-    s = s.lstrip("/").rstrip("/")
+    # Ensure it starts with "/"
+    if not folder.startswith("/"):
+        folder = "/" + folder
 
-    if not s:
-        raise ValueError("folder is required")
+    # Ensure it ends with "/"
+    if not folder.endswith("/"):
+        folder = folder + "/"
 
-    # Prevent traversal or weird patterns
-    if ".." in s or "//" in s:
+    # Basic traversal / invalid pattern prevention
+    if ".." in folder or "//" in folder:
         raise ValueError("invalid folder path")
 
-    # Optional restriction to a top-level prefix, e.g. "clients/"
-    # Compare without leading slash; enforce prefix on "s/"
-    if ALLOWED_PREFIX:
-        # Ensure prefix ends with "/"
-        allowed = ALLOWED_PREFIX.rstrip("/") + "/"
-        if not (s + "/").startswith(allowed):
-            raise ValueError(f"folder must start with '{allowed}'")
+    # Restrict to allowed prefix
+    if not folder.startswith(ALLOWED_PREFIX):
+        raise ValueError(f"folder must start with {ALLOWED_PREFIX}")
 
-    # Conservative allowlist:
-    # segments can include letters, numbers, dot, underscore, dash
-    # and path separators "/"
-    if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
+    # Conservative allowlist: letters, numbers, dash, underscore, slash
+    if not re.fullmatch(r"[/A-Za-z0-9._-]+/", folder):
         raise ValueError("folder contains invalid characters")
 
-    return f"/{s}/"
-
-
-def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
-    body = event.get("body")
-    if not body:
-        return {}
-    try:
-        if event.get("isBase64Encoded"):
-            body = base64.b64decode(body).decode("utf-8")
-        return json.loads(body)
-    except Exception:
-        return {}
+    return folder
 
 
 def _parse_ttl_seconds(event: Dict[str, Any]) -> int:
+    """
+    Accepts cookie_retention_seconds as query param or JSON field.
+    Falls back to DEFAULT_TTL_SECONDS, clamps to MAX_TTL_SECONDS.
+    """
     ttl = None
 
-    q = event.get("queryStringParameters") or {}
-    if "cookie_retention_seconds" in q:
-        ttl = q.get("cookie_retention_seconds")
-    elif "cookie_retention" in q:
-        ttl = q.get("cookie_retention")
+    # HTTP API v2 query params
+    q = (event.get("queryStringParameters") or {}) if isinstance(event, dict) else {}
+    if q:
+        if "cookie_retention_seconds" in q:
+            ttl = q.get("cookie_retention_seconds")
+        elif "cookie_retention" in q:
+            ttl = q.get("cookie_retention")
 
+    # REST API query params (same key)
     if ttl is None and event.get("multiValueQueryStringParameters"):
         mv = event["multiValueQueryStringParameters"]
         if "cookie_retention_seconds" in mv and mv["cookie_retention_seconds"]:
             ttl = mv["cookie_retention_seconds"][0]
 
-    payload = _parse_json_body(event)
-    if ttl is None:
-        ttl = payload.get("cookie_retention_seconds") or payload.get("cookie_retention")
+    # JSON body
+    if ttl is None and event.get("body"):
+        try:
+            body = event["body"]
+            if event.get("isBase64Encoded"):
+                body = base64.b64decode(body).decode("utf-8")
+            payload = json.loads(body)
+            ttl = payload.get("cookie_retention_seconds") or payload.get("cookie_retention")
+        except Exception:
+            ttl = None
 
     if ttl is None:
         ttl_seconds = DEFAULT_TTL_SECONDS
@@ -170,13 +188,19 @@ def _parse_ttl_seconds(event: Dict[str, Any]) -> int:
 def _parse_folder(event: Dict[str, Any]) -> str:
     folder = None
 
-    q = event.get("queryStringParameters") or {}
-    if "folder" in q:
+    q = (event.get("queryStringParameters") or {}) if isinstance(event, dict) else {}
+    if q and "folder" in q:
         folder = q["folder"]
 
-    if folder is None:
-        payload = _parse_json_body(event)
-        folder = payload.get("folder") or payload.get("path")
+    if folder is None and event.get("body"):
+        try:
+            body = event["body"]
+            if event.get("isBase64Encoded"):
+                body = base64.b64decode(body).decode("utf-8")
+            payload = json.loads(body)
+            folder = payload.get("folder") or payload.get("path")
+        except Exception:
+            folder = None
 
     if folder is None:
         raise ValueError("folder parameter is required")
@@ -185,11 +209,16 @@ def _parse_folder(event: Dict[str, Any]) -> str:
 
 
 def _build_custom_policy(resource_url_pattern: str, expires_epoch: int) -> str:
+    """
+    Custom policy restricting access to a resource pattern until a specific epoch time.
+    """
     policy = {
         "Statement": [
             {
                 "Resource": resource_url_pattern,
-                "Condition": {"DateLessThan": {"AWS:EpochTime": expires_epoch}},
+                "Condition": {
+                    "DateLessThan": {"AWS:EpochTime": expires_epoch}
+                }
             }
         ]
     }
@@ -197,13 +226,18 @@ def _build_custom_policy(resource_url_pattern: str, expires_epoch: int) -> str:
 
 
 def _sign_policy(policy_str: str) -> Tuple[str, str]:
+    """
+    Returns (policy_b64_cf, signature_b64_cf)
+    """
     key = _load_private_key()
+
     policy_bytes = policy_str.encode("utf-8")
 
+    # CloudFront signed cookies traditionally use RSA-SHA1 with PKCS#1 v1.5 padding.
     signature = key.sign(
         policy_bytes,
         padding.PKCS1v15(),
-        hashes.SHA1(),  # CloudFront signed cookies commonly expect RSA-SHA1
+        hashes.SHA1()
     )
 
     policy_b64 = _cloudfront_url_safe_b64(policy_bytes)
@@ -223,6 +257,8 @@ def _cookie_attrs(max_age: Optional[int]) -> str:
     if COOKIE_HTTPONLY:
         parts.append("HttpOnly")
 
+    # SameSite
+    # If SameSite=None, Secure must be true (most browsers)
     parts.append(f"SameSite={COOKIE_SAMESITE}")
 
     if max_age is not None:
@@ -232,13 +268,15 @@ def _cookie_attrs(max_age: Optional[int]) -> str:
 
 
 def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
+    # API Gateway supports multiple Set-Cookie headers in different ways:
+    # - HTTP API v2: use "cookies": [...]
+    # - REST API: use "multiValueHeaders": {"Set-Cookie": [...]}
     cookie_strings = []
     attrs = _cookie_attrs(max_age)
 
     for k, v in cookies.items():
         cookie_strings.append(f"{k}={v}; {attrs}")
 
-    # Return BOTH formats to work on HTTP API v2 ("cookies") and REST API ("multiValueHeaders")
     return {
         "statusCode": 302,
         "headers": {
@@ -246,56 +284,10 @@ def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
         },
-        "cookies": cookie_strings,  # HTTP API v2
-        "multiValueHeaders": {      # REST API
-            "Set-Cookie": cookie_strings
-        },
-        "body": "",
+        # HTTP API v2 uses "cookies"
+        "cookies": cookie_strings,
+        "body": ""
     }
-
-
-def _response_json(status: int, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "statusCode": status,
-        "headers": {"Content-Type": "application/json", "Cache-Control": "no-store"},
-        "body": json.dumps(payload),
-    }
-
-
-def _request_method(event: Dict[str, Any]) -> str:
-    # HTTP API v2
-    m = (event.get("requestContext") or {}).get("http", {}).get("method")
-    if m:
-        return m.upper()
-    # REST API
-    m = event.get("httpMethod")
-    if m:
-        return m.upper()
-    return "GET"
-
-
-def _request_path(event: Dict[str, Any]) -> str:
-    # HTTP API v2
-    p = event.get("rawPath")
-    if p:
-        return p
-    # REST API
-    p = event.get("path")
-    if p:
-        return p
-    return "/"
-
-
-def _base_url(event: Dict[str, Any]) -> str:
-    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    proto = headers.get("x-forwarded-proto", "https")
-    host = headers.get("host")
-    if not host:
-        # Fallback: you can also set an explicit public base URL if needed
-        host = os.getenv("PUBLIC_API_HOST", "").strip()
-    if not host:
-        raise RuntimeError("cannot determine request host (missing Host header)")
-    return f"{proto}://{host}"
 
 
 # -----------------------------
@@ -303,49 +295,28 @@ def _base_url(event: Dict[str, Any]) -> str:
 # -----------------------------
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
-        method = _request_method(event)
-        path = _request_path(event)
-
-        # -------------------------------------------------------
-        # 1) POST /sign  -> returns share_url that points to /open
-        # -------------------------------------------------------
-        if method == "POST" and path.endswith("/sign"):
-            folder = _parse_folder(event)              # "/client123/job456/"
-            ttl_seconds = _parse_ttl_seconds(event)
-
-            # Build a share URL that a client can open in browser.
-            # That browser hit will trigger GET /open which sets cookies then redirects to CloudFront.
-            base = _base_url(event)
-
-            # Use the "folder" param WITHOUT leading slash in URL for readability, but either works
-            folder_param = folder.lstrip("/")  # "client123/job456/"
-            share_url = (
-                f"{base}{OPEN_PATH}"
-                f"?folder={quote(folder_param, safe='')}"
-                f"&cookie_retention_seconds={ttl_seconds}"
-            )
-
-            return _response_json(200, {"share_url": share_url})
-
-        # -------------------------------------------------------
-        # 2) GET /open (or anything else) -> set cookies + redirect
-        # -------------------------------------------------------
         folder = _parse_folder(event)
         ttl_seconds = _parse_ttl_seconds(event)
 
         now = int(time.time())
         expires_epoch = now + ttl_seconds
 
+        # Scope the cookie to this folder only
+        # Use https scheme + CloudFront domain
+        # Note: include wildcard for all objects under folder.
         resource_pattern = f"https://{CLOUDFRONT_DOMAIN}{folder}*"
+
         policy_str = _build_custom_policy(resource_pattern, expires_epoch)
         policy_b64, sig_b64 = _sign_policy(policy_str)
 
+        # Cookies required by CloudFront for custom policy
         cookies = {
             "CloudFront-Policy": policy_b64,
             "CloudFront-Signature": sig_b64,
             "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
         }
 
+        # Redirect target
         if REDIRECT_TO_INDEX:
             location = f"https://{CLOUDFRONT_DOMAIN}{folder}index.html"
         else:
@@ -355,6 +326,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return _response_redirect(location, cookies, max_age)
 
     except ValueError as ve:
-        return _response_json(400, {"error": str(ve)})
-    except Exception:
-        return _response_json(500, {"error": "internal_error"})
+        return {
+            "statusCode": 400,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": str(ve)}),
+        }
+    except Exception as e:
+        # Avoid leaking internals
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": "internal_error"}),
+        }

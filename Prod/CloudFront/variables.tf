@@ -93,3 +93,14 @@ variable "website_bucket_arn" {
    type = string
   
 }
+
+variable "api_open_origin_domain_name" {
+  description = "Domain name for the /open endpoint origin Example: abc123.execute-api.eu-central-1.amazonaws.com"
+  type        = string
+}
+
+variable "open_origin_path" {
+  description = "Optional origin path if your API stage is in the path, e.g. /prod. Leave empty if not needed."
+  type        = string
+  default     = ""
+}

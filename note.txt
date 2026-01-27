@@ -4,4 +4,3 @@ Enable IAM Identity Center
 Create OIDC
 
 Fix Secret Manager Policy
-WAF

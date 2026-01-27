@@ -57,7 +57,7 @@ locals {
   }
 }
 
-
+/*
 resource "aws_s3_object" "website" {
   for_each = {
     for f in local.website_files :
@@ -76,5 +76,5 @@ resource "aws_s3_object" "website" {
   etag = filemd5("${local.website_dir}/${each.value}")
 
 }
-
+*/
 

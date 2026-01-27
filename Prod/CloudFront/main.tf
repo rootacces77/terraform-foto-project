@@ -14,6 +14,10 @@ data "aws_cloudfront_response_headers_policy" "security_headers" {
   name = "Managed-SecurityHeadersPolicy"
 }
 
+data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
+  name = "Managed-AllViewerExceptHostHeader"
+}
+
 
 resource "aws_cloudfront_origin_access_control" "oac" {
   name                              = "oac-s3-website-and-gallery"

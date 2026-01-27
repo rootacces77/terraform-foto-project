@@ -24,7 +24,7 @@ variable "cloudfront_private_key_secret_arn" {
 
 variable "allowed_folder_prefix"{ 
     type = string 
-    default = "/gallery/"
+    default = ""
 }
 
 variable "default_ttl_seconds" { 
@@ -65,4 +65,10 @@ variable "cookie_domain" {
 variable "cookie_path" { 
     type = string
     default = "/" 
+}
+
+variable "open_path" {
+  description = "Path used in share_url returned by /sign (default /open)."
+  type        = string
+  default     = "/open"
 }

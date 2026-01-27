@@ -35,6 +35,8 @@ resource "aws_lambda_function" "cookie_generator" {
 
       COOKIE_DOMAIN           = var.cookie_domain            # usually "photos.example.com"
       COOKIE_PATH             = var.cookie_path              # "/"
+
+       OPEN_PATH              = var.open_path
        
     }
   }

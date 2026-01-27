@@ -34,6 +34,7 @@ module "kms" {
   
 }
 
+/*
 module "iam" {
     source = "./IAM"
     providers = {
@@ -46,6 +47,7 @@ module "iam" {
     signer_api_execute_arn = module.apigateway.signer_api_execute_arn
   
 }
+*/
 
 module "s3" {
     source = "./S3"
@@ -75,6 +77,16 @@ module "lambda" {
   
 }
 
+module "cognito" {
+    source = "./Cognito"
+
+    cognito_callback_urls = local.admin_domain
+    cognito_logout_urls   = local.admin_domain
+
+
+  
+}
+
 module "apigateway" {
     source = "./APIGateway"
     providers = {
@@ -83,6 +95,9 @@ module "apigateway" {
 
     lambda_cookie_generator_arn  = module.lambda.lambda_role_arn
     lambda_cookie_generator_name = module.lambda.lambda_cookie_generator_name
+
+    cognito_issuer =  module.cognito.cognito_issuer
+    cognito_user_pool_client_id = module.cognito.cognito_user_pool_client_id
   
 }
 
@@ -98,6 +113,8 @@ module "cloudfront" {
     website_bucket_regional_domain_name = module.s3.website_bucket_regional_domain_name
     website_bucket_arn                  = module.s3.website_bucket_arn
     website_bucket_name                 = module.s3.website_bucket_name
+
+    api_open_origin_domain_name = module.apigateway.api_open_origin_domain_name
 
   #  cf_public_key_arn = module.kms.cf_public_key_arn
     cf_public_key_pem = module.kms.cf_public_key_pem
@@ -129,3 +146,4 @@ module "organization" {
     source = "./Organization"
   
 }
+
