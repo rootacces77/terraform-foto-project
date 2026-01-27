@@ -80,8 +80,8 @@ module "lambda" {
 module "cognito" {
     source = "./Cognito"
 
-    cognito_callback_urls = local.admin_domain
-    cognito_logout_urls   = local.admin_domain
+    cognito_callback_urls = "https://admin.project-practice.com/"
+    cognito_logout_urls   = "https://admin.project-practice.com/"
 
 
   
