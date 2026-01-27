@@ -17,3 +17,15 @@ variable "www_domain" {
     description = "WWW Domain"
   
 }
+
+variable "admin_domain" {
+    type = string
+    description = "Admin Domain"
+  
+}
+
+variable "gallery_domain" {
+    type = string
+    description = "Gallery Domain"
+  
+}

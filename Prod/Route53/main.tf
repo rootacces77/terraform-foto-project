@@ -1,7 +1,7 @@
 locals {
-  fqdn_web    = "${var.web_sub_domain}.${var.root_domain}"
-  fqdn_admin  = "${var.gallery_sub_domain}.${var.root_domain}"
-  fqdn_gallery = "${var.admin_sub_domain}.${var.root_domain}"
+  fqdn_web    = "${var.web_sub_domain}"
+  fqdn_admin  = "${var.gallery_sub_domain}"
+  fqdn_gallery = "${var.admin_sub_domain}"
 }
 
 # -----------------------------

@@ -6,11 +6,14 @@ module "acm" {
 
     www_domain = local.www_domain
     apex_domain = local.apex_domain
+    gallery_domain = local.gallery_domain
+    admin_domain = local.admin_domain
 
     domain_zone_id = local.domain_zone_id
 
   
 }
+
 module "secretmanager" {
     source = "./SecretManager"
     providers = {
