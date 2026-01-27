@@ -82,3 +82,14 @@ variable "web_alias" {
   
 }
 */
+
+
+variable "website_bucket_name" {
+    type = string
+  
+}
+
+variable "website_bucket_arn" {
+   type = string
+  
+}

@@ -13,3 +13,12 @@ output "website_bucket_regional_domain_name" {
   
 }
 
+output "website_bucket_name" {
+    value = module.static_site_bucket.s3_bucket_id
+  
+}
+
+output "website_bucket_arn" {
+    value = module.static_site_bucket.s3_bucket_arn
+  
+}
