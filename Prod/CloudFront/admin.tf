@@ -7,7 +7,7 @@ resource "aws_cloudfront_distribution" "admin" {
   is_ipv6_enabled = true
   price_class     = var.price_class
 
-  #aliases = [var.admin_alias]
+  aliases = [var.admin_alias]
 
   # / -> /admin/index.html
   default_root_object = "admin/index.html"

@@ -95,3 +95,8 @@ variable "open_origin_path" {
   type        = string
   default     = ""
 }
+
+variable "admin_alias" {
+    type = string
+  
+}

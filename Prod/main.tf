@@ -108,6 +108,7 @@ module "cloudfront" {
     }
 
     acm_certificate_arn = module.acm.cf_cert_arn
+    admin_alias = local.admin_domain
     
     gallery_bucket_regional_domain_name = module.s3.gallery_bucket_regional_domain_name
     website_bucket_regional_domain_name = module.s3.website_bucket_regional_domain_name
@@ -117,6 +118,7 @@ module "cloudfront" {
 
   #  cf_public_key_arn = module.kms.cf_public_key_arn
     cf_public_key_pem = module.kms.cf_public_key_pem
+
 
 }
 

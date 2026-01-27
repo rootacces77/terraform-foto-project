@@ -4,7 +4,7 @@
 #CREATE AND VALIDATE CERTIFICATE THAT WILL BE USED BY CF
 resource "aws_acm_certificate" "prod_cf" {
   domain_name               =  var.apex_domain
-  subject_alternative_names = [var.www_domain]
+  subject_alternative_names = [var.www_domain,var.admin_domain,var.gallery_domain]
 
 
   validation_method = "DNS"
