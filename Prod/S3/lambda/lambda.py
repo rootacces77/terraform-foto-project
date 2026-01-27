@@ -4,7 +4,7 @@ import time
 import base64
 import re
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import quote  # already imported in your version
 
 import boto3
 from botocore.exceptions import ClientError
@@ -27,19 +27,21 @@ ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "604800"))  # 7 days
 MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "1209600"))         # 14 days
-REDIRECT_TO_INDEX = os.getenv("REDIRECT_TO_INDEX", "true").lower() == "true"
 
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_HTTPONLY = os.getenv("COOKIE_HTTPONLY", "true").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax")  # Lax/Strict/None
 COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "false").lower() == "true"
 
+# For Option A (cookie minting served on gallery.example.com), keep Domain as gallery host
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", CLOUDFRONT_DOMAIN).strip()
 COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
-# Where /open lives relative to API domain. If your API is behind a custom domain,
-# this default is correct.
+# Share-link endpoint that lives on gallery domain (CloudFront behavior routes it to this Lambda)
 OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
+
+# Single gallery app page at bucket root
+GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/index.html").strip()
 
 
 # -----------------------------
@@ -110,16 +112,12 @@ def _normalize_folder(folder: str) -> str:
         raise ValueError("invalid folder path")
 
     # Optional restriction to a top-level prefix, e.g. "clients/"
-    # Compare without leading slash; enforce prefix on "s/"
     if ALLOWED_PREFIX:
-        # Ensure prefix ends with "/"
         allowed = ALLOWED_PREFIX.rstrip("/") + "/"
         if not (s + "/").startswith(allowed):
             raise ValueError(f"folder must start with '{allowed}'")
 
     # Conservative allowlist:
-    # segments can include letters, numbers, dot, underscore, dash
-    # and path separators "/"
     if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
         raise ValueError("folder contains invalid characters")
 
@@ -156,10 +154,7 @@ def _parse_ttl_seconds(event: Dict[str, Any]) -> int:
     if ttl is None:
         ttl = payload.get("cookie_retention_seconds") or payload.get("cookie_retention")
 
-    if ttl is None:
-        ttl_seconds = DEFAULT_TTL_SECONDS
-    else:
-        ttl_seconds = int(ttl)
+    ttl_seconds = DEFAULT_TTL_SECONDS if ttl is None else int(ttl)
 
     if ttl_seconds < 60:
         raise ValueError("cookie_retention_seconds must be >= 60 seconds")
@@ -203,7 +198,7 @@ def _sign_policy(policy_str: str) -> Tuple[str, str]:
     signature = key.sign(
         policy_bytes,
         padding.PKCS1v15(),
-        hashes.SHA1(),  # CloudFront signed cookies commonly expect RSA-SHA1
+        hashes.SHA1(),
     )
 
     policy_b64 = _cloudfront_url_safe_b64(policy_bytes)
@@ -214,6 +209,7 @@ def _sign_policy(policy_str: str) -> Tuple[str, str]:
 def _cookie_attrs(max_age: Optional[int]) -> str:
     parts = [f"Path={COOKIE_PATH}"]
 
+    # Only set Domain if non-empty
     if COOKIE_DOMAIN:
         parts.append(f"Domain={COOKIE_DOMAIN}")
 
@@ -238,7 +234,6 @@ def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional
     for k, v in cookies.items():
         cookie_strings.append(f"{k}={v}; {attrs}")
 
-    # Return BOTH formats to work on HTTP API v2 ("cookies") and REST API ("multiValueHeaders")
     return {
         "statusCode": 302,
         "headers": {
@@ -246,10 +241,8 @@ def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
         },
-        "cookies": cookie_strings,  # HTTP API v2
-        "multiValueHeaders": {      # REST API
-            "Set-Cookie": cookie_strings
-        },
+        "cookies": cookie_strings,          # HTTP API v2
+        "multiValueHeaders": {"Set-Cookie": cookie_strings},  # REST API
         "body": "",
     }
 
@@ -263,11 +256,9 @@ def _response_json(status: int, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _request_method(event: Dict[str, Any]) -> str:
-    # HTTP API v2
     m = (event.get("requestContext") or {}).get("http", {}).get("method")
     if m:
         return m.upper()
-    # REST API
     m = event.get("httpMethod")
     if m:
         return m.upper()
@@ -275,27 +266,13 @@ def _request_method(event: Dict[str, Any]) -> str:
 
 
 def _request_path(event: Dict[str, Any]) -> str:
-    # HTTP API v2
     p = event.get("rawPath")
     if p:
         return p
-    # REST API
     p = event.get("path")
     if p:
         return p
     return "/"
-
-
-def _base_url(event: Dict[str, Any]) -> str:
-    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    proto = headers.get("x-forwarded-proto", "https")
-    host = headers.get("host")
-    if not host:
-        # Fallback: you can also set an explicit public base URL if needed
-        host = os.getenv("PUBLIC_API_HOST", "").strip()
-    if not host:
-        raise RuntimeError("cannot determine request host (missing Host header)")
-    return f"{proto}://{host}"
 
 
 # -----------------------------
@@ -307,20 +284,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         path = _request_path(event)
 
         # -------------------------------------------------------
-        # 1) POST /sign  -> returns share_url that points to /open
+        # 1) POST /sign  -> returns share_url on gallery domain (/open)
         # -------------------------------------------------------
         if method == "POST" and path.endswith("/sign"):
             folder = _parse_folder(event)              # "/client123/job456/"
             ttl_seconds = _parse_ttl_seconds(event)
 
-            # Build a share URL that a client can open in browser.
-            # That browser hit will trigger GET /open which sets cookies then redirects to CloudFront.
-            base = _base_url(event)
-
-            # Use the "folder" param WITHOUT leading slash in URL for readability, but either works
-            folder_param = folder.lstrip("/")  # "client123/job456/"
+            folder_param = folder.lstrip("/")          # "client123/job456/"
             share_url = (
-                f"{base}{OPEN_PATH}"
+                f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}"
                 f"?folder={quote(folder_param, safe='')}"
                 f"&cookie_retention_seconds={ttl_seconds}"
             )
@@ -328,14 +300,23 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_json(200, {"share_url": share_url})
 
         # -------------------------------------------------------
-        # 2) GET /open (or anything else) -> set cookies + redirect
+        # 2) GET /open -> sets cookies then redirects to root app
         # -------------------------------------------------------
+        if method not in ("GET", "HEAD"):
+            return _response_json(405, {"error": "method_not_allowed"})
+
+        # Optional: only allow the /open path to mint cookies
+        # (prevents accidental cookie minting on other routes)
+        if not path.endswith(OPEN_PATH):
+            return _response_json(404, {"error": "not_found"})
+
         folder = _parse_folder(event)
         ttl_seconds = _parse_ttl_seconds(event)
 
         now = int(time.time())
         expires_epoch = now + ttl_seconds
 
+        # Cookies grant access only to this folder
         resource_pattern = f"https://{CLOUDFRONT_DOMAIN}{folder}*"
         policy_str = _build_custom_policy(resource_pattern, expires_epoch)
         policy_b64, sig_b64 = _sign_policy(policy_str)
@@ -346,10 +327,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
         }
 
-        if REDIRECT_TO_INDEX:
-            location = f"https://{CLOUDFRONT_DOMAIN}{folder}index.html"
-        else:
-            location = f"https://{CLOUDFRONT_DOMAIN}{folder}"
+        # Redirect to ONE root app page; app will read ?folder=
+        folder_param = folder.lstrip("/")  # "client123/job456/"
+        location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder_param, safe='')}"
 
         max_age = ttl_seconds if COOKIE_SET_MAX_AGE else None
         return _response_redirect(location, cookies, max_age)
@@ -358,3 +338,4 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return _response_json(400, {"error": str(ve)})
     except Exception:
         return _response_json(500, {"error": "internal_error"})
+    
