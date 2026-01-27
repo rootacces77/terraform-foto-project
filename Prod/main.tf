@@ -79,9 +79,6 @@ module "lambda" {
 
 module "cognito" {
     source = "./Cognito"
-    providers = {
-      aws = aws.eu-south-1
-    }
 
     cognito_callback_urls = local.admin_domain
     cognito_logout_urls   = local.admin_domain
