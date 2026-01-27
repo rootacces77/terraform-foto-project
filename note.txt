@@ -3,5 +3,5 @@ Register Domain
 Enable IAM Identity Center
 Create OIDC
 
-Hardcoded ARN in Secret Manager Policy
+Fix Secret Manager Policy
 WAF

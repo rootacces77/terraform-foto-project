@@ -11,7 +11,7 @@ resource "aws_secretsmanager_secret" "lambda_private_key" {
 }
 
 
-
+/*
 resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda" {
   secret_arn = aws_secretsmanager_secret.lambda_private_key.arn
 
@@ -37,3 +37,4 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda" {
     ]
   })
 }
+*/
