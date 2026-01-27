@@ -18,6 +18,10 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+data "aws_cloudfront_origin_request_policy" "cors_s3_origin" {
+  name = "Managed-CORS-S3Origin"
+}
+
 
 resource "aws_cloudfront_origin_access_control" "oac" {
   name                              = "oac-s3-website-and-gallery"

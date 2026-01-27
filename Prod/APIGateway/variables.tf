@@ -19,3 +19,8 @@ variable "cognito_user_pool_client_id" {
     type = string
   
 }
+
+variable "admin_origin" {
+    type = string
+  
+}

@@ -9,7 +9,7 @@ resource "aws_apigatewayv2_api" "signer" {
   cors_configuration {
     # Only allow your admin site to call the API from the browser
     allow_origins = [
-      "https://admin.example.com"
+      var.admin_origin
     ]
 
     # Your admin JS calls POST /sign, and the browser will preflight OPTIONS

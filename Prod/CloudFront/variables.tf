@@ -100,3 +100,8 @@ variable "admin_alias" {
     type = string
   
 }
+
+variable "gallery_alias" {
+    type = string
+  
+}

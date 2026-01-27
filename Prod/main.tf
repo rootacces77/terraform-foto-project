@@ -98,6 +98,8 @@ module "apigateway" {
 
     cognito_issuer =  module.cognito.cognito_issuer
     cognito_user_pool_client_id = module.cognito.cognito_user_pool_client_id
+
+    admin_origin = "https://admin.project-practice.com/"
   
 }
 
@@ -109,6 +111,8 @@ module "cloudfront" {
 
     acm_certificate_arn = module.acm.cf_cert_arn
     admin_alias = local.admin_domain
+    gallery_alias = local.gallery_domain
+
     
     gallery_bucket_regional_domain_name = module.s3.gallery_bucket_regional_domain_name
     website_bucket_regional_domain_name = module.s3.website_bucket_regional_domain_name
