@@ -13,7 +13,7 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     }
 
     actions   = ["s3:GetObject"]
-    resources = ["${website_bucket_arn}/*"]
+    resources = ["${var.website_bucket_arn}/*"]
 
     condition {
       test     = "StringEquals"
@@ -38,8 +38,8 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     actions = ["s3:*"]
 
     resources = [
-      website_bucket_arn,
-      "${website_bucket_arn}/*"
+      var.website_bucket_arn,
+      "${var.website_bucket_arn}/*"
     ]
 
     condition {
