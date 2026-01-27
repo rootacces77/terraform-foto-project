@@ -6,7 +6,7 @@ resource "aws_cloudfront_distribution" "gallery" {
   is_ipv6_enabled = true
   price_class     = var.price_class
 
-  #aliases = [var.gallery_alias]
+  aliases = [var.gallery_alias]
 
   # Optional: if you have a landing page in the gallery bucket:
   # default_root_object = "${var.folder_prefix}/index.html"
