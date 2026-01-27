@@ -18,7 +18,7 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.admin.arn]
+      values   = [var.cloudfront_admin_arn]
     }
   }
 

@@ -18,3 +18,8 @@ output "cloudfront_gallery_domain_name" {
     value = aws_cloudfront_distribution.gallery.domain_name
   
 }
+
+output "cloudfront_admin_arn" {
+    value = aws_cloudfront_distribution.admin.arn
+  
+}

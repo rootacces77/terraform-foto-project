@@ -84,15 +84,6 @@ variable "web_alias" {
 */
 
 
-variable "website_bucket_name" {
-    type = string
-  
-}
-
-variable "website_bucket_arn" {
-   type = string
-  
-}
 
 variable "api_open_origin_domain_name" {
   description = "Domain name for the /open endpoint origin Example: abc123.execute-api.eu-central-1.amazonaws.com"

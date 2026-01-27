@@ -79,6 +79,9 @@ module "lambda" {
 
 module "cognito" {
     source = "./Cognito"
+    providers = {
+      aws = aws.eu-south-1
+    }
 
     cognito_callback_urls = local.admin_domain
     cognito_logout_urls   = local.admin_domain
@@ -111,8 +114,7 @@ module "cloudfront" {
     
     gallery_bucket_regional_domain_name = module.s3.gallery_bucket_regional_domain_name
     website_bucket_regional_domain_name = module.s3.website_bucket_regional_domain_name
-    website_bucket_arn                  = module.s3.website_bucket_arn
-    website_bucket_name                 = module.s3.website_bucket_name
+
 
     api_open_origin_domain_name = module.apigateway.api_open_origin_domain_name
 
@@ -147,3 +149,14 @@ module "organization" {
   
 }
 
+module "s3_policies" {
+  source = "./S3-Policies"
+    providers = {
+      aws = aws.eu-south-1
+    }
+
+  website_bucket_arn = module.s3.website_bucket_arn
+  website_bucket_name = module.s3.website_bucket_name
+  cloudfront_admin_arn = module.cloudfront.cloudfront_admin_arn
+  
+}
