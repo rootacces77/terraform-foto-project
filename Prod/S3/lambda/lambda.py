@@ -4,7 +4,7 @@ import time
 import base64
 import re
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import quote  # already imported in your version
+from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
@@ -16,13 +16,11 @@ from cryptography.hazmat.primitives.asymmetric import padding
 # -----------------------------
 # Config
 # -----------------------------
-CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()
+CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # gallery.project-practice.com
 CLOUDFRONT_KEY_PAIR_ID = os.environ["CLOUDFRONT_KEY_PAIR_ID"].strip()
 PRIVATE_KEY_SECRET_ARN = os.environ["CLOUDFRONT_PRIVATE_KEY_SECRET_ARN"].strip()
 
-# OPTIONAL restriction:
-# - Leave empty to allow any root folder like "client123/..."
-# - Set to something like "clients/" if you still want a single top-level namespace
+# OPTIONAL restriction: "" means allow any root folder "client123/..."
 ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "604800"))  # 7 days
@@ -33,19 +31,18 @@ COOKIE_HTTPONLY = os.getenv("COOKIE_HTTPONLY", "true").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax")  # Lax/Strict/None
 COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "false").lower() == "true"
 
-# For Option A (cookie minting served on gallery.example.com), keep Domain as gallery host
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", CLOUDFRONT_DOMAIN).strip()
 COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
-# Share-link endpoint that lives on gallery domain (CloudFront behavior routes it to this Lambda)
+# /open is served on the GALLERY domain via CloudFront behavior -> API origin
 OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
 
-# Single gallery app page at bucket root
+# Single app at bucket root
 GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/index.html").strip()
 
 
 # -----------------------------
-# Globals (cached across invocations)
+# Globals
 # -----------------------------
 _sm = boto3.client("secretsmanager")
 _private_key_obj = None
@@ -55,12 +52,6 @@ _private_key_obj = None
 # Helpers
 # -----------------------------
 def _cloudfront_url_safe_b64(data: bytes) -> str:
-    """
-    CloudFront uses a URL-safe variant:
-      '+' -> '-'
-      '=' -> '_'
-      '/' -> '~'
-    """
     s = base64.b64encode(data).decode("utf-8")
     return s.replace("+", "-").replace("=", "_").replace("/", "~")
 
@@ -79,45 +70,32 @@ def _load_private_key() -> Any:
     if not pem:
         pem = base64.b64decode(resp["SecretBinary"]).decode("utf-8")
 
-    key = serialization.load_pem_private_key(
-        pem.encode("utf-8"),
-        password=None,
-    )
+    key = serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
     _private_key_obj = key
     return key
 
 
 def _normalize_folder(folder: str) -> str:
     """
-    Accepts:
-      - "client123"
-      - "client123/job456"
-      - "/client123/job456/"
-    Normalizes to:
-      - "/client123/"
-      - "/client123/job456/"
+    Accepts: "client123", "client123/job456", "/client123/job456/"
+    Returns: "/client123/" or "/client123/job456/"
     """
     s = (folder or "").strip()
     if not s:
         raise ValueError("folder is required")
 
-    # Treat input as a prefix at bucket root (no leading slash required)
     s = s.lstrip("/").rstrip("/")
-
     if not s:
         raise ValueError("folder is required")
 
-    # Prevent traversal or weird patterns
     if ".." in s or "//" in s:
         raise ValueError("invalid folder path")
 
-    # Optional restriction to a top-level prefix, e.g. "clients/"
     if ALLOWED_PREFIX:
         allowed = ALLOWED_PREFIX.rstrip("/") + "/"
         if not (s + "/").startswith(allowed):
             raise ValueError(f"folder must start with '{allowed}'")
 
-    # Conservative allowlist:
     if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
         raise ValueError("folder contains invalid characters")
 
@@ -195,11 +173,7 @@ def _sign_policy(policy_str: str) -> Tuple[str, str]:
     key = _load_private_key()
     policy_bytes = policy_str.encode("utf-8")
 
-    signature = key.sign(
-        policy_bytes,
-        padding.PKCS1v15(),
-        hashes.SHA1(),
-    )
+    signature = key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())
 
     policy_b64 = _cloudfront_url_safe_b64(policy_bytes)
     sig_b64 = _cloudfront_url_safe_b64(signature)
@@ -209,7 +183,6 @@ def _sign_policy(policy_str: str) -> Tuple[str, str]:
 def _cookie_attrs(max_age: Optional[int]) -> str:
     parts = [f"Path={COOKIE_PATH}"]
 
-    # Only set Domain if non-empty
     if COOKIE_DOMAIN:
         parts.append(f"Domain={COOKIE_DOMAIN}")
 
@@ -241,7 +214,7 @@ def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
         },
-        "cookies": cookie_strings,          # HTTP API v2
+        "cookies": cookie_strings,                 # HTTP API v2
         "multiValueHeaders": {"Set-Cookie": cookie_strings},  # REST API
         "body": "",
     }
@@ -283,9 +256,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         method = _request_method(event)
         path = _request_path(event)
 
-        # -------------------------------------------------------
-        # 1) POST /sign  -> returns share_url on gallery domain (/open)
-        # -------------------------------------------------------
+        # 1) POST /sign -> returns share_url on the GALLERY domain (not execute-api)
         if method == "POST" and path.endswith("/sign"):
             folder = _parse_folder(event)              # "/client123/job456/"
             ttl_seconds = _parse_ttl_seconds(event)
@@ -299,14 +270,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             return _response_json(200, {"share_url": share_url})
 
-        # -------------------------------------------------------
-        # 2) GET /open -> sets cookies then redirects to root app
-        # -------------------------------------------------------
+        # 2) Only allow cookie minting on GET/HEAD /open
         if method not in ("GET", "HEAD"):
             return _response_json(405, {"error": "method_not_allowed"})
 
-        # Optional: only allow the /open path to mint cookies
-        # (prevents accidental cookie minting on other routes)
         if not path.endswith(OPEN_PATH):
             return _response_json(404, {"error": "not_found"})
 
@@ -316,7 +283,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         now = int(time.time())
         expires_epoch = now + ttl_seconds
 
-        # Cookies grant access only to this folder
+        # Scope access to this folder only
         resource_pattern = f"https://{CLOUDFRONT_DOMAIN}{folder}*"
         policy_str = _build_custom_policy(resource_pattern, expires_epoch)
         policy_b64, sig_b64 = _sign_policy(policy_str)
@@ -327,7 +294,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
         }
 
-        # Redirect to ONE root app page; app will read ?folder=
+        # Redirect to ONE root app page
         folder_param = folder.lstrip("/")  # "client123/job456/"
         location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder_param, safe='')}"
 
@@ -338,4 +305,3 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return _response_json(400, {"error": str(ve)})
     except Exception:
         return _response_json(500, {"error": "internal_error"})
-    
