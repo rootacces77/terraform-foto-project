@@ -99,7 +99,7 @@ module "apigateway" {
     cognito_issuer =  module.cognito.cognito_issuer
     cognito_user_pool_client_id = module.cognito.cognito_user_pool_client_id
 
-    admin_origin = "https://admin.project-practice.com/"
+    admin_origin = "https://admin.project-practice.com"
   
 }
 

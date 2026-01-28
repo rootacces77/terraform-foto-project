@@ -15,6 +15,10 @@ resource "aws_lambda_function" "cookie_generator" {
   s3_key            = var.lambda_zip_path
  # s3_object_version = var.lambda_artifact_version
 
+  layers = [
+    aws_lambda_layer_version.cryptography.arn
+  ]
+
   environment {
     variables = {
        # Required
@@ -43,4 +47,14 @@ resource "aws_lambda_function" "cookie_generator" {
 
   timeout     = 10
   memory_size = 128
+}
+
+############################################
+# Crypto Layer
+############################################
+resource "aws_lambda_layer_version" "cryptography" {
+  layer_name          = "cryptography-py312"
+  s3_bucket           = var.lambda_bucket_name
+  s3_key              = "cryptography-layer.zip"
+  compatible_runtimes = ["python3.12"]
 }
