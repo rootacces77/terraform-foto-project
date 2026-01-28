@@ -24,3 +24,22 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs" {
 }
 
 
+resource "aws_iam_role_policy" "lambda_read_cf_private_key_secret" {
+  name = "lambda-read-cf-private-key-secret"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "AllowReadPrivateKeySecret"
+        Effect   = "Allow"
+        Action   = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = var.cloudfront_private_key_secret_arn
+      }
+    ]
+  })
+}
