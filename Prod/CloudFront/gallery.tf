@@ -36,7 +36,7 @@ resource "aws_cloudfront_distribution" "gallery" {
 
   # NEW: origin for /open endpoint (API Gateway/Lambda URL/ALB)
   origin {
-    origin_id   = "open-origin"
+    origin_id   = "api-origin"
     domain_name = var.api_open_origin_domain_name
     origin_path = var.open_origin_path
 
@@ -51,7 +51,7 @@ resource "aws_cloudfront_distribution" "gallery" {
   # NEW: /open path must NOT require signed cookies
   ordered_cache_behavior {
     path_pattern           = "/open*"
-    target_origin_id       = "open-origin"
+    target_origin_id       = "api-origin"
     viewer_protocol_policy = "redirect-to-https"
  
 
@@ -66,10 +66,10 @@ resource "aws_cloudfront_distribution" "gallery" {
     compress                   = true
   }
 
-  # 
+  # List
   ordered_cache_behavior {
     path_pattern           = "/list*"
-    target_origin_id       = "list-origin"
+    target_origin_id       = "api-origin"
     viewer_protocol_policy = "redirect-to-https"
  
 
