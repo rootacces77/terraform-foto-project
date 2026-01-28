@@ -303,5 +303,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except ValueError as ve:
         return _response_json(400, {"error": str(ve)})
-    except Exception:
-        return _response_json(500, {"error": "internal_error"})
+    except Exception as e:
+        print("UNHANDLED_EXCEPTION:", repr(e))
+        return _response_json(500, {"error": "internal_error", "detail": str(e)})

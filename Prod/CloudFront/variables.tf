@@ -93,7 +93,7 @@ variable "api_open_origin_domain_name" {
 variable "open_origin_path" {
   description = "Optional origin path if your API stage is in the path, e.g. /prod. Leave empty if not needed."
   type        = string
-  default     = ""
+  default     = "/prod"
 }
 
 variable "admin_alias" {
