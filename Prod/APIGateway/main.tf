@@ -126,3 +126,12 @@ resource "aws_lambda_permission" "allow_apigw_invoke_open" {
   source_arn = "${aws_apigatewayv2_api.signer.execution_arn}/${aws_apigatewayv2_stage.prod.name}/GET/open"
 }
 
+resource "aws_lambda_permission" "allow_apigw_invoke_list" {
+  statement_id  = "AllowExecutionFromAPIGatewayV2Open"
+  action        = "lambda:InvokeFunction"
+  function_name = var.lambda_cookie_generator_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_apigatewayv2_api.signer.execution_arn}/${aws_apigatewayv2_stage.prod.name}/GET/list"
+}
+
