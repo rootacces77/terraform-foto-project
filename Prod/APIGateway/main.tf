@@ -127,7 +127,7 @@ resource "aws_lambda_permission" "allow_apigw_invoke_open" {
 }
 
 resource "aws_lambda_permission" "allow_apigw_invoke_list" {
-  statement_id  = "AllowExecutionFromAPIGatewayV2Open"
+  statement_id  = "AllowExecutionFromAPIGatewayV2Openx"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_cookie_generator_name
   principal     = "apigateway.amazonaws.com"
