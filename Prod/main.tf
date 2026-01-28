@@ -73,6 +73,8 @@ module "lambda" {
 
     cloudfront_domain = local.gallery_domain
 
+    gallery_bucket_name = module.s3.gallery_bucket_name
+
   
 
   

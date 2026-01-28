@@ -79,6 +79,17 @@ resource "aws_apigatewayv2_route" "open" {
 }
 
 ############################################
+# Route: GET /list
+############################################
+resource "aws_apigatewayv2_route" "list" {
+  api_id    = aws_apigatewayv2_api.signer.id
+  route_key = "GET /list"
+  target    = "integrations/${aws_apigatewayv2_integration.signer_lambda.id}"
+
+  authorization_type = "NONE"
+}
+
+############################################
 # Stage
 ############################################
 resource "aws_apigatewayv2_stage" "prod" {

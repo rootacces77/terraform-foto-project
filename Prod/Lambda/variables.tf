@@ -72,3 +72,10 @@ variable "open_path" {
   type        = string
   default     = "/open"
 }
+
+
+variable "gallery_bucket_name" {
+    type = string
+    description = "Gallery Bucket Name"
+  
+}

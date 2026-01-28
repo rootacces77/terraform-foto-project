@@ -24,6 +24,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs" {
 }
 
 
+# Read Secrets
 resource "aws_iam_role_policy" "lambda_read_cf_private_key_secret" {
   name = "lambda-read-cf-private-key-secret"
   role = aws_iam_role.lambda_exec.id
@@ -42,4 +43,24 @@ resource "aws_iam_role_policy" "lambda_read_cf_private_key_secret" {
       }
     ]
   })
+}
+
+#List buckets
+data "aws_iam_policy_document" "lambda_list_bucket" {
+  statement {
+    sid     = "AllowListGalleryBucket"
+    effect  = "Allow"
+    actions = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.gallery_bucket_name}"]
+  }
+}
+
+resource "aws_iam_policy" "lambda_list_bucket" {
+  name   = "lambda-list-gallery-bucket"
+  policy = data.aws_iam_policy_document.lambda_list_bucket.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_list_bucket" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = aws_iam_policy.lambda_list_bucket.arn
 }

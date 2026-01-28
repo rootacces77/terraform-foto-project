@@ -22,3 +22,8 @@ output "website_bucket_arn" {
     value = module.static_site_bucket.s3_bucket_arn
   
 }
+
+output "gallery_bucket_name" {
+    value = module.gallery-bucket.s3_bucket_id
+  
+}

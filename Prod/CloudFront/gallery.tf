@@ -66,6 +66,24 @@ resource "aws_cloudfront_distribution" "gallery" {
     compress                   = true
   }
 
+  # 
+  ordered_cache_behavior {
+    path_pattern           = "/list*"
+    target_origin_id       = "list-origin"
+    viewer_protocol_policy = "redirect-to-https"
+ 
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD"]
+
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+   
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+  }
+
   # PUBLIC: index.html
   ordered_cache_behavior {
     path_pattern           = "index.html"

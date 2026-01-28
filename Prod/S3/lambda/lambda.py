@@ -1,9 +1,10 @@
+
 import os
 import json
 import time
 import base64
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 from urllib.parse import quote
 
 import boto3
@@ -19,6 +20,9 @@ from cryptography.hazmat.primitives.asymmetric import padding
 CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # gallery.project-practice.com
 CLOUDFRONT_KEY_PAIR_ID = os.environ["CLOUDFRONT_KEY_PAIR_ID"].strip()
 PRIVATE_KEY_SECRET_ARN = os.environ["CLOUDFRONT_PRIVATE_KEY_SECRET_ARN"].strip()
+
+# NEW: gallery bucket name for /list
+GALLERY_BUCKET = os.environ["GALLERY_BUCKET"].strip()
 
 # OPTIONAL restriction: "" means allow any root folder "client123/..."
 ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
@@ -37,14 +41,26 @@ COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 # /open is served on the GALLERY domain via CloudFront behavior -> API origin
 OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
 
+# NEW: /list path
+LIST_PATH = os.getenv("LIST_PATH", "/list").strip()
+
 # Single app at bucket root
 GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/index.html").strip()
+
+# Optional controls for listing
+MAX_LIST_KEYS = int(os.getenv("MAX_LIST_KEYS", "500"))  # hard cap returned to browser
+ALLOWED_IMAGE_EXT = set(
+    e.strip().lower()
+    for e in os.getenv("ALLOWED_IMAGE_EXT", ".jpg,.jpeg,.png,.webp,.gif").split(",")
+    if e.strip()
+)
 
 
 # -----------------------------
 # Globals
 # -----------------------------
 _sm = boto3.client("secretsmanager")
+_s3 = boto3.client("s3")
 _private_key_obj = None
 
 
@@ -248,6 +264,47 @@ def _request_path(event: Dict[str, Any]) -> str:
     return "/"
 
 
+def _is_allowed_image_key(key: str) -> bool:
+    lk = key.lower()
+    for ext in ALLOWED_IMAGE_EXT:
+        if lk.endswith(ext):
+            return True
+    return False
+
+
+def _list_images_for_prefix(prefix: str) -> List[str]:
+    """
+    prefix: e.g. "test/" or "client123/job456/"
+    Returns list of S3 keys under that prefix (filtered by extension).
+    """
+    keys: List[str] = []
+    token: Optional[str] = None
+
+    while True:
+        args = {"Bucket": GALLERY_BUCKET, "Prefix": prefix, "MaxKeys": 1000}
+        if token:
+            args["ContinuationToken"] = token
+
+        resp = _s3.list_objects_v2(**args)
+
+        for obj in resp.get("Contents", []):
+            k = obj.get("Key", "")
+            if not k:
+                continue
+            # Skip "folder marker" objects if any
+            if k.endswith("/"):
+                continue
+            if _is_allowed_image_key(k):
+                keys.append(k)
+                if len(keys) >= MAX_LIST_KEYS:
+                    return keys
+
+        if not resp.get("IsTruncated"):
+            return keys
+
+        token = resp.get("NextContinuationToken")
+
+
 # -----------------------------
 # Lambda handler
 # -----------------------------
@@ -267,8 +324,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 f"?folder={quote(folder_param, safe='')}"
                 f"&cookie_retention_seconds={ttl_seconds}"
             )
-
             return _response_json(200, {"share_url": share_url})
+
+        # 2A) GET/HEAD /list -> returns JSON list of images in folder (no manifest needed)
+        if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
+            folder = _parse_folder(event)            # "/test/"
+            prefix = folder.lstrip("/")              # "test/"
+            files = _list_images_for_prefix(prefix)
+            if method == "HEAD":
+                # HEAD response: no body
+                return {
+                    "statusCode": 200,
+                    "headers": {"Cache-Control": "no-store"},
+                    "body": ""
+                }
+            return _response_json(200, {"folder": prefix, "files": files})
 
         # 2) Only allow cookie minting on GET/HEAD /open
         if method not in ("GET", "HEAD"):
