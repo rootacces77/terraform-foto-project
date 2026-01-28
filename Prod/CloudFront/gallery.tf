@@ -79,7 +79,7 @@ resource "aws_cloudfront_distribution" "gallery" {
     # trusted_key_groups omitted or set empty
 
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3origin.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
 }
@@ -94,7 +94,7 @@ ordered_cache_behavior {
   cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
   cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-  origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3origin.id
+  origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
   response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   compress                   = true
 }
