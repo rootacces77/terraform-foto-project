@@ -1,3 +1,3 @@
 # terraform-foto-project
 
-![Alt text](diagram/terraform-foto-project.png)
+![Alt text](diagram/project3-foto.png)
