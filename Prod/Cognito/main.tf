@@ -18,6 +18,10 @@ resource "aws_cognito_user_pool" "admin" {
     require_symbols   = true
   }
 
+  admin_create_user_config {
+    allow_admin_create_user_only = true
+  }
+
   # Optional: basic account recovery
   account_recovery_setting {
     recovery_mechanism {
