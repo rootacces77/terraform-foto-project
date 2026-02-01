@@ -10,6 +10,12 @@ variable "oidc_role_name" {
   default = "GitHubActionsTerraformRole"
 }
 
+variable "oidc_role_arn" {
+  type = string
+  default = "arn:aws:iam::238407199949:role/GitHubActionsTerraformRole"
+  
+}
+
 data "aws_iam_role" "oidc" {
   name = var.oidc_role_name
 }

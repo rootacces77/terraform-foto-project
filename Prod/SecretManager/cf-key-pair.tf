@@ -75,7 +75,7 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
           StringNotEquals = {
             "aws:PrincipalArn" = [
               var.lambda_role_arn,
-              data.aws_iam_role.oidc.arn
+              var.oidc_role_arn
             ]
           }
         }
@@ -104,7 +104,7 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
         Sid    = "AllowOidcManageSecret",
         Effect = "Allow",
         Principal = {
-          AWS = data.aws_iam_role.oidc.arn
+          AWS = var.oidc_role_arn
         },
         Action = [
           "secretsmanager:GetSecretValue",
