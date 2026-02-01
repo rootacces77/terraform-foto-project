@@ -1,4 +1,8 @@
-data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
+  ############################################
+  # static-website Bucket Policy
+  ############################################
+
+data "aws_iam_policy_document" "static_website_bucket_policy" {
 
   ############################################
   # CloudFront OAC -> S3 GetObject only
@@ -18,7 +22,7 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = [var.cloudfront_admin_arn]
+      values   = [var.cloudfront_admin_arn , var.cloudfront_web_arn]
     }
   }
 
@@ -52,5 +56,5 @@ data "aws_iam_policy_document" "s3_bucket_policy_cloudfront_oac" {
 
 resource "aws_s3_bucket_policy" "this" {
   bucket = var.website_bucket_name
-  policy = data.aws_iam_policy_document.s3_bucket_policy_cloudfront_oac.json
+  policy = data.aws_iam_policy_document.static_website_bucket_policy.json
 }

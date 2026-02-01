@@ -4,10 +4,10 @@ module "acm" {
       aws = aws.us-east-1
     }
 
-    www_domain = local.www_domain
-    apex_domain = local.apex_domain
-    gallery_domain = local.gallery_domain
-    admin_domain = local.admin_domain
+    www_domain       = local.www_domain
+    apex_domain      = local.apex_domain
+    gallery_domain   = local.gallery_domain
+    admin_domain     = local.admin_domain
 
     domain_zone_id = local.domain_zone_id
 
@@ -34,26 +34,26 @@ module "kms" {
   
 }
 
-/*
+
 module "iam" {
     source = "./IAM"
     providers = {
       aws = aws.us-east-1
     }
 
-    identity_center_user_email = local.identity_center_user_email
+    gallery_bucket_name = module.s3.gallery_bucket_name
 
-    target_account_id = local.target_account_id
-    signer_api_execute_arn = module.apigateway.signer_api_execute_arn
   
 }
-*/
+
 
 module "s3" {
     source = "./S3"
     providers = {
       aws = aws.eu-south-1
     }
+
+    gallery_retention_days = local.gallery_retention_days
 
 
 }
@@ -82,9 +82,12 @@ module "lambda" {
 
 module "cognito" {
     source = "./Cognito"
+    providers = {
+      aws = aws.eu-south-1
+    }
 
-    cognito_callback_urls = "https://admin.project-practice.com/"
-    cognito_logout_urls   = "https://admin.project-practice.com/"
+    cognito_callback_urls = local.admin_full_link
+    cognito_logout_urls   = local.admin_full_link
 
 
   
@@ -102,7 +105,7 @@ module "apigateway" {
     cognito_issuer =  module.cognito.cognito_issuer
     cognito_user_pool_client_id = module.cognito.cognito_user_pool_client_id
 
-    admin_origin = "https://admin.project-practice.com"
+    admin_origin = local.admin_full_link
   
 }
 
@@ -113,8 +116,9 @@ module "cloudfront" {
     }
 
     acm_certificate_arn = module.acm.cf_cert_arn
-    admin_alias = local.admin_domain
-    gallery_alias = local.gallery_domain
+    admin_alias         = local.admin_domain
+    gallery_alias       = local.gallery_domain
+    web_alias           = local.www_domain
 
     
     gallery_bucket_regional_domain_name = module.s3.gallery_bucket_regional_domain_name
@@ -123,7 +127,6 @@ module "cloudfront" {
 
     api_open_origin_domain_name = module.apigateway.api_open_origin_domain_name
 
-  #  cf_public_key_arn = module.kms.cf_public_key_arn
     cf_public_key_pem = module.kms.cf_public_key_pem
 
 
@@ -134,8 +137,8 @@ module  "route53" {
 
     gallery_sub_domain = local.gallery_domain
     web_sub_domain     = local.www_domain
-    root_domain = local.apex_domain
-    admin_sub_domain = local.admin_domain
+    root_domain        = local.apex_domain
+    admin_sub_domain   = local.admin_domain
 
     hosted_zone_id = local.domain_zone_id
     
@@ -166,3 +169,5 @@ module "s3_policies" {
   cloudfront_admin_arn = module.cloudfront.cloudfront_admin_arn
   
 }
+
+

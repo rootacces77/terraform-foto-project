@@ -1,6 +1,7 @@
 Enable AWS Organization
 Register Domain
-Enable IAM Identity Center
 Create OIDC
+Create Cognito user (Disable sign up)
+Create Cyberduck Access Keys
 
-Fix Secret Manager Policy
+

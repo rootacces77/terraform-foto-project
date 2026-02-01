@@ -11,7 +11,6 @@ locals {
 variable "gallery_retention_days" {
   description = "Number of days to retain gallery objects before deletion."
   type        = number
-  default     = 30
 
   validation {
     condition     = var.gallery_retention_days >= 1 && var.gallery_retention_days <= 3650

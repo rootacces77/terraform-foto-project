@@ -19,7 +19,7 @@ module "static_site_bucket" {
   object_ownership         = "BucketOwnerEnforced"
 
   versioning = {
-    enabled = true
+    enabled = false
   }
 
   server_side_encryption_configuration = {

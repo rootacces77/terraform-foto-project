@@ -7,3 +7,8 @@ output "api_open_origin_domain_name" {
     value = replace(aws_apigatewayv2_api.signer.api_endpoint, "https://", "")
   
 }
+
+output "stage_name" {
+    value = aws_apigatewayv2_stage.prod.name
+  
+}

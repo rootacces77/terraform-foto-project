@@ -22,18 +22,6 @@ variable "price_class" {
   default     = "PriceClass_100"
 }
 
-/*
-variable "aliases" {
-  type        = list(string)
-  description = "Custom domain names for CloudFront (e.g. [\"app.example.com\"])"
-}
-
-
-variable "trusted_key_group_id" {
-  description = "CloudFront Key Group ID used to validate signed cookies for gallery paths."
-  type        = string
-}
-*/
 
 variable "folder_prefix" {
     type = string
@@ -42,16 +30,6 @@ variable "folder_prefix" {
   
 }
 
-
-/*
-
-variable "cf_public_key_arn" {
-    type = string
-    description = "CF Public Key ARN"
-  
-}
-
-*/
 
 variable "cf_public_key_pem" {
     type = string
@@ -62,27 +40,6 @@ variable "cf_key_group_name" {
     description = "cf_key_group_name"
     default = "cf-keygroup"
 }
-
-
-
-/*
-variable "admin_alias" {
-     type = string
-     default = "value"
-  
-}
-
-variable "gallery_alias" {
-     type = string
-
-}
-
-variable "web_alias" {
-    type = string 
-  
-}
-*/
-
 
 
 variable "api_open_origin_domain_name" {
@@ -103,5 +60,10 @@ variable "admin_alias" {
 
 variable "gallery_alias" {
     type = string
+  
+}
+
+variable "web_alias" {
+    type = string 
   
 }

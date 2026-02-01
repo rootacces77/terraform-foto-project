@@ -6,15 +6,16 @@ resource "aws_cloudfront_distribution" "web" {
   is_ipv6_enabled = true
   price_class     = var.price_class
 
- # aliases = [var.web_alias]
+  aliases = [var.web_alias]
 
   # / -> /web/index.html
-  default_root_object = "web/index.html"
+  default_root_object = "index.html"
 
   origin {
     origin_id                = "s3-website-origin"
     domain_name              = var.website_bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
+    origin_path = "/website"
   }
 
   default_cache_behavior {

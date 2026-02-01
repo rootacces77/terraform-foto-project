@@ -1,5 +1,5 @@
 resource "aws_organizations_policy" "deny_non_us_east_1" {
-  name        = "DenyAllRegionsExceptUsEast1"
+  name        = "AllowRegions"
   description = "Deny actions outside us-east-1; exclude global services."
   type        = "SERVICE_CONTROL_POLICY"
 
