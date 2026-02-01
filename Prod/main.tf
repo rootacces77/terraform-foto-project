@@ -99,7 +99,7 @@ module "apigateway" {
       aws = aws.eu-south-1
     }
 
-    lambda_cookie_generator_arn  = module.lambda.lambda_role_arn
+    lambda_cookie_generator_arn  = module.lambda.lambda_cookie_generator_arn
     lambda_cookie_generator_name = module.lambda.lambda_cookie_generator_name
 
     cognito_issuer =  module.cognito.cognito_issuer

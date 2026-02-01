@@ -7,3 +7,8 @@ output "lambda_cookie_generator_name" {
     value = aws_lambda_function.cookie_generator.function_name
   
 }
+
+output "lambda_cookie_generator_arn" {
+    value = aws_lambda_function.cookie_generator.arn
+  
+}
