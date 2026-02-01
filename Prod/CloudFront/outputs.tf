@@ -23,3 +23,13 @@ output "cloudfront_admin_arn" {
     value = aws_cloudfront_distribution.admin.arn
   
 }
+
+output "cloudfront_web_arn" {
+    value = aws_cloudfront_distribution.web.arn
+  
+}
+
+output "cloudfront_gallery_arn" {
+    value = aws_cloudfront_distribution.gallery.arn
+  
+}

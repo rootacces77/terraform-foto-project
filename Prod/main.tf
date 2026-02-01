@@ -164,10 +164,16 @@ module "s3_policies" {
       aws = aws.eu-south-1
     }
 
-  website_bucket_arn = module.s3.website_bucket_arn
-  website_bucket_name = module.s3.website_bucket_name
+  website_bucket_arn   = module.s3.website_bucket_arn
+  website_bucket_name  = module.s3.website_bucket_name
   cloudfront_admin_arn = module.cloudfront.cloudfront_admin_arn
+  cloudfront_web_arn   =  module.cloudfront.cloudfront_web_arn
+
+  gallery_bucket_name    = module.s3.gallery_bucket_name
+  gallery_bucket_arn     = module.s3.gallery_bucket_arn
+  cloudfront_gallery_arn = module.cloudfront.cloudfront_gallery_arn
   
 }
+
 
 

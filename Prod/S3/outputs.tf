@@ -27,3 +27,8 @@ output "gallery_bucket_name" {
     value = module.gallery-bucket.s3_bucket_id
   
 }
+
+output "gallery_bucket_arn" {
+    value = module.gallery-bucket.s3_bucket_arn
+  
+}
