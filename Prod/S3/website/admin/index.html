@@ -3,80 +3,69 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gallery</title>
+  <title>Admin – Generate Gallery Link</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#0b1220; color:#e6edf3; }
-    header { padding: 18px 16px; border-bottom: 1px solid #1e2a44; background:#111a2e; position: sticky; top: 0; z-index: 10; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-    .muted { color:#b6c2d0; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-    .card { background:#111a2e; border:1px solid #1e2a44; border-radius: 14px; overflow:hidden; }
-    .card img { width:100%; height:240px; object-fit:cover; display:block; background:#0b1220; cursor: zoom-in; }
-    .cap { padding: 10px 12px; font-size: 13px; display:flex; justify-content:space-between; gap:10px; align-items:center; }
-    a { color:#8ab4ff; text-decoration:none; }
-    .btn { padding: 8px 10px; border-radius: 10px; border:1px solid #1e2a44; background:#0f1730; color:#e6edf3; cursor:pointer; }
-    .btn:disabled { opacity:.55; cursor:not-allowed; }
-    .btn:hover { filter: brightness(1.08); }
-    .toprow { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; }
-
-    /* Lightbox */
-    .modal { position:fixed; inset:0; background: rgba(0,0,0,.78); display:none; align-items:center; justify-content:center; padding:18px; z-index: 999; }
-    .modal.open { display:flex; }
-    .modal-inner { width:min(1100px, 96vw); height:min(92vh, 900px); display:flex; flex-direction:column; gap:10px; }
-    .modal-bar { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .modal-title { color:#b6c2d0; font-size: 13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .modal-stage { flex:1; display:flex; align-items:center; justify-content:center; position:relative; }
-    .modal-stage img { max-width: 96vw; max-height: 82vh; object-fit: contain; display:block; border-radius: 12px; cursor: zoom-out; }
-    .navbtn {
-      position:absolute; top:50%; transform: translateY(-50%);
-      padding: 10px 12px; border-radius: 12px;
-      border:1px solid rgba(255,255,255,.12); background: rgba(15,23,48,.55);
-      color:#e6edf3; cursor:pointer; user-select:none;
-    }
-    .navbtn:hover { filter: brightness(1.12); }
-    .navbtn.left { left: 8px; }
-    .navbtn.right { right: 8px; }
-    .hint { color:#b6c2d0; font-size:12px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #0b1220; color: #e6edf3; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 32px 16px; }
+    .card { background: #111a2e; border: 1px solid #1e2a44; border-radius: 14px; padding: 20px; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    p { margin: 0 0 16px; color: #b6c2d0; }
+    label { display: block; margin: 14px 0 6px; font-size: 13px; color: #b6c2d0; }
+    input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a3a5a; background: #0b1220; color: #e6edf3; outline: none; }
+    input::placeholder { color: #6e7f99; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #2a3a5a; background: #162543; color: #e6edf3; cursor: pointer; }
+    button.primary { background: #2b69ff; border-color: #2b69ff; color: #ffffff; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg { margin-top: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a3a5a; background: #0b1220; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .ok { border-color: #1f8f4a; }
+    .err { border-color: #b42318; }
+    .topbar { display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; }
+    .auth { display:flex; gap: 10px; align-items:center; }
+    .pill { padding: 6px 10px; border: 1px solid #2a3a5a; border-radius: 999px; font-size: 12px; color: #b6c2d0; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
-
 <body>
-  <header>
-    <div class="wrap toprow">
-      <div><strong>Gallery</strong></div>
-      <div id="status" class="muted">Loading…</div>
-      <button id="dlFolder" class="btn" style="display:none">Download folder (ZIP)</button>
-    </div>
-    <div class="wrap hint" style="padding-top:0">
-      Tip: click an image to open viewer • use ←/→ keys • swipe on mobile
-    </div>
-  </header>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h1>Generate share link</h1>
+        <p>Creates a client share link for a specific folder and cookie retention period.</p>
+      </div>
 
-  <main class="wrap">
-    <div id="grid" class="grid"></div>
-  </main>
+      <div class="auth">
+        <span id="authStatus" class="pill">Not logged in</span>
+        <button id="btnLogin">Login</button>
+        <button id="btnLogout" disabled>Logout</button>
+      </div>
+    </div>
 
-  <!-- Lightbox -->
-  <div id="modal" class="modal" role="dialog" aria-modal="true">
-    <div class="modal-inner">
-      <div class="modal-bar">
-        <div class="modal-title" id="modalTitle"></div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <a id="modalDownload" class="btn" href="#" download>Download</a>
-          <button id="modalClose" class="btn">Close</button>
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="folder">Folder (bucket root prefix)</label>
+          <input id="folder" placeholder="client123/job456" value="" />
+        </div>
+        <div>
+          <label for="days">Cookie retention (days)</label>
+          <input id="days" type="number" min="1" max="14" value="7" />
         </div>
       </div>
-      <div class="modal-stage" id="modalStage">
-        <button class="navbtn left" id="prevBtn" aria-label="Previous">←</button>
-        <img id="modalImg" alt="preview" />
-        <button class="navbtn right" id="nextBtn" aria-label="Next">→</button>
+
+      <div class="btns">
+        <button class="primary" id="btnGenerate">Generate link</button>
+        <button id="btnCopy" disabled>Copy link</button>
+        <button id="btnOpen" disabled>Open link</button>
       </div>
+
+      <div id="status" class="msg" style="display:none;"></div>
+      <div id="result" class="msg mono" style="display:none;"></div>
     </div>
   </div>
 
-  <!-- JSZip for “download folder” -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-r0z7Fh7C9oU2m+7r7G0o4X+zqK+W6q5tB2m0+uO3c7QG3gVwE7cQvTQp9v0nJx4wQ7gF0uJd9rYVZQ4a3VgJ1A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="/jszip.min.js"></script>
-  <script src="/app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
