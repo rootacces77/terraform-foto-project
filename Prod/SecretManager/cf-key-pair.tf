@@ -45,20 +45,15 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      ############################################
-      # 1) DENY for anyone who is not Lambda or OIDC
-      #    - covers read + management on THIS secret
-      ############################################
+      # Deny everyone except the two roles
       {
-        Sid       = "DenySecretAccessUnlessLambdaOrOidc",
+        Sid       = "DenyUnlessLambdaOrOidc",
         Effect    = "Deny",
         Principal = "*",
         Action = [
-          # Read
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret",
 
-          # Manage this secret
           "secretsmanager:DeleteSecret",
           "secretsmanager:RestoreSecret",
           "secretsmanager:PutSecretValue",
@@ -72,20 +67,15 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
         ],
         Resource = aws_secretsmanager_secret.lambda_private_key.arn,
         Condition = {
-          StringNotEquals = {
-            "aws:PrincipalArn" = [
-              var.lambda_role_arn,
-              var.oidc_role_arn
-            ]
+          ArnNotEquals = {
+            "aws:PrincipalArn" = [var.lambda_role_arn,var.oidc_role_arn]
           }
         }
       },
 
-      ############################################
-      # 2) Explicit ALLOW: Lambda role can read
-      ############################################
+      # Allow Lambda read
       {
-        Sid    = "AllowLambdaReadSecret",
+        Sid    = "AllowLambdaRead",
         Effect = "Allow",
         Principal = {
           AWS = var.lambda_role_arn
@@ -97,11 +87,9 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
         Resource = aws_secretsmanager_secret.lambda_private_key.arn
       },
 
-      ############################################
-      # 3) Explicit ALLOW: OIDC role can manage + read
-      ############################################
+      # Allow OIDC role manage + read
       {
-        Sid    = "AllowOidcManageSecret",
+        Sid    = "AllowOidcManage",
         Effect = "Allow",
         Principal = {
           AWS = var.oidc_role_arn
@@ -109,7 +97,6 @@ resource "aws_secretsmanager_secret_policy" "deny_all_except_lambda_and_oidc" {
         Action = [
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret",
-
           "secretsmanager:DeleteSecret",
           "secretsmanager:RestoreSecret",
           "secretsmanager:PutSecretValue",
