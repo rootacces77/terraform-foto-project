@@ -12,12 +12,13 @@
  */
 
 const CONFIG = {
-  COGNITO_DOMAIN: "https://foto.auth.us-east-1.amazoncognito.com",
-  COGNITO_CLIENT_ID: "3g1o5pvqlhndiufvkuc9u25t8f",
+  COGNITO_DOMAIN: "https://foto.auth.eu-south-1.amazoncognito.com",
+  COGNITO_CLIENT_ID: "9vj56bf1ovaub0kf82ed4kq1h",
   COGNITO_REDIRECT_URI: "https://admin.project-practice.com/",
   COGNITO_LOGOUT_URI: "https://admin.project-practice.com/",
 
-  SIGNER_API_URL: "https://eyeitiipbi.execute-api.eu-south-1.amazonaws.com/prod/sign",
+  SIGNER_API_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/sign",
+  
 
   MAX_DAYS: 14,
   MIN_DAYS: 1,

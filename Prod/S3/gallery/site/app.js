@@ -1,3 +1,25 @@
+/* =============================
+   Theme (Light default + saved toggle)
+============================= */
+const THEME_KEY = "gallery_theme";
+
+function setTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem(THEME_KEY, theme);
+
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+}
+
+function initTheme() {
+  // Light is default as requested.
+  const saved = localStorage.getItem(THEME_KEY);
+  setTheme(saved === "dark" ? "dark" : "light");
+}
+
+/* =============================
+   Helpers
+============================= */
 function getFolderFromQuery() {
   const url = new URL(window.location.href);
   return url.searchParams.get("folder") || "";
@@ -8,7 +30,7 @@ function normalizeFolder(folder) {
   f = f.replace(/^\/+/, "");
   if (!f) return null;
   if (!f.endsWith("/")) f += "/";
-  return f; // "test/"
+  return f; // e.g. "test/"
 }
 
 function isProbablyImage(key) {
@@ -25,6 +47,15 @@ function safeZipName(folder) {
     .replace(/[^A-Za-z0-9._-]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Your server expects: "/<folder><basename>"
+ * Example: folder="test/" key="test/abc.png" -> "/test/abc.png"
+ */
+function objUrlFromKey(key, folder) {
+  const name = basename(key);
+  return `/${folder}${encodeURIComponent(name)}`;
 }
 
 async function loadList(folder) {
@@ -44,11 +75,12 @@ function triggerDownloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/* -----------------------------
+/* =============================
    Lightbox (slider)
------------------------------- */
-let IMAGE_KEYS = [];  // full keys: ["test/project2.jpeg", ...]
+============================= */
+let IMAGE_KEYS = [];
 let CUR = 0;
+let CURRENT_FOLDER = null;
 
 function openModalAt(idx) {
   const modal = document.getElementById("modal");
@@ -58,10 +90,11 @@ function openModalAt(idx) {
 
   CUR = Math.max(0, Math.min(idx, IMAGE_KEYS.length - 1));
   const key = IMAGE_KEYS[CUR];
-  const objUrl = `/${key}`;
+
+  const objUrl = objUrlFromKey(key, CURRENT_FOLDER);
 
   img.src = objUrl;
-  title.textContent = key;
+  title.textContent = basename(key);
 
   dl.href = objUrl;
   dl.setAttribute("download", basename(key));
@@ -99,16 +132,17 @@ function onTouchEnd(e) {
   const dx = x2 - TOUCH_X;
   TOUCH_X = null;
 
-  // swipe threshold
   if (Math.abs(dx) < 45) return;
   if (dx < 0) nextImg();
   else prevImg();
 }
 
-/* -----------------------------
-   Render grid
------------------------------- */
-function renderGrid(keys) {
+/* =============================
+   Render grid (Instagram-like)
+============================= */
+function renderGrid(keys, folder) {
+  CURRENT_FOLDER = folder;
+
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
 
@@ -119,41 +153,25 @@ function renderGrid(keys) {
   dlFolderBtn.style.display = IMAGE_KEYS.length ? "inline-block" : "none";
 
   IMAGE_KEYS.forEach((key, idx) => {
-    const objUrl = `/${key}`;
+    const objUrl = objUrlFromKey(key, folder);
 
-    const card = document.createElement("div");
-    card.className = "card";
+    const tile = document.createElement("div");
+    tile.className = "tile";
 
     const img = document.createElement("img");
     img.src = objUrl;
     img.loading = "lazy";
-    img.alt = key;
+    img.alt = basename(key);
     img.addEventListener("click", () => openModalAt(idx));
 
-    const cap = document.createElement("div");
-    cap.className = "cap";
-
-    const left = document.createElement("span");
-    left.textContent = key;
-
-    const a = document.createElement("a");
-    a.href = objUrl;
-    a.textContent = "Download";
-    a.setAttribute("download", basename(key));
-
-    cap.appendChild(left);
-    cap.appendChild(a);
-
-    card.appendChild(img);
-    card.appendChild(cap);
-    grid.appendChild(card);
+    tile.appendChild(img);
+    grid.appendChild(tile);
   });
 }
 
-/* -----------------------------
+/* =============================
    Download folder as ZIP
-   (client-side; can be slow for big folders)
------------------------------- */
+============================= */
 async function downloadFolderZip(folder) {
   const status = document.getElementById("status");
   const btn = document.getElementById("dlFolder");
@@ -172,9 +190,8 @@ async function downloadFolderZip(folder) {
       const key = IMAGE_KEYS[i];
       status.textContent = `Downloading ${i + 1}/${IMAGE_KEYS.length}…`;
 
-      // Same-origin request, signed cookies included automatically
-      const resp = await fetch(`/${key}`, { cache: "no-store" });
-      if (!resp.ok) throw new Error(`fetch failed for ${key} (${resp.status})`);
+      const resp = await fetch(objUrlFromKey(key, folder), { cache: "no-store" });
+      if (!resp.ok) throw new Error(`fetch failed for ${basename(key)} (${resp.status})`);
 
       const blob = await resp.blob();
       zip.file(basename(key), blob);
@@ -193,10 +210,18 @@ async function downloadFolderZip(folder) {
   }
 }
 
-/* -----------------------------
+/* =============================
    Main
------------------------------- */
+============================= */
 (async function main() {
+  initTheme();
+
+  // Theme toggle wiring
+  document.getElementById("themeToggle").addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "light";
+    setTheme(cur === "dark" ? "light" : "dark");
+  });
+
   const status = document.getElementById("status");
   const folder = normalizeFolder(getFolderFromQuery());
 
@@ -229,12 +254,8 @@ async function downloadFolderZip(folder) {
 
   try {
     const data = await loadList(folder);
-
-    // Support both shapes:
-    // 1) { files: ["test/a.jpg"] }
-    // 2) ["test/a.jpg"]
     const keys = Array.isArray(data) ? data : (data.files || data.keys || []);
-    renderGrid(keys);
+    renderGrid(keys, folder);
   } catch (e) {
     status.textContent = `Could not load list: ${e.message}`;
   }

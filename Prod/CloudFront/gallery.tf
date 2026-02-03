@@ -84,6 +84,7 @@ resource "aws_cloudfront_distribution" "gallery" {
     compress                   = true
   }
 
+/*
   # PUBLIC: index.html
   ordered_cache_behavior {
     path_pattern           = "index.html"
@@ -117,6 +118,24 @@ ordered_cache_behavior {
   compress                   = true
 }
 
+*/
+
+  # PUBLIC: site assets (no signed cookies required)
+  ordered_cache_behavior {
+    path_pattern           = "/site/*"
+    target_origin_id       = "s3-gallery-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+
+    # IMPORTANT: no trusted_key_groups here, so it is public
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+  }
+  
   viewer_certificate {
     acm_certificate_arn            = var.acm_certificate_arn
     ssl_support_method             = "sni-only"
