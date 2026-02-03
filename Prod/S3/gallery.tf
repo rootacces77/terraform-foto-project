@@ -17,7 +17,7 @@ module "gallery-bucket" {
   }
 
   versioning = {
-    enabled = true
+    enabled = false
   }
 
   # Lifecycle: keep objects in STANDARD (no transitions) and delete after retention_days
@@ -28,7 +28,7 @@ module "gallery-bucket" {
 
       # Apply to all objects (recommended if the bucket is dedicated to galleries)
       filter = {
-        prefix = ""
+        prefix = var.gallery_policy_prefix
       }
 
       expiration = {
@@ -60,3 +60,24 @@ module "gallery-bucket" {
     Terraform   = "true"
   }
 }
+
+/*
+resource "aws_s3_object" "gallery" {
+  for_each = {
+    for f in local.gallery_files :
+    f => f
+    # Exclude "directories" if any tooling produces them (rare with fileset)
+    if !endswith(f, "/")
+  }
+
+  bucket = module.gallery_bucket.s3_bucket_id
+
+  # Keep directory structure in S3
+  key    = each.value
+  source = "${local.gallery_dir}/${each.value}"
+
+  # Ensures changes trigger re-upload
+  etag = filemd5("${local.gallery_dir}/${each.value}")
+
+}
+*/

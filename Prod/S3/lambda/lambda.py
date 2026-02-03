@@ -1,4 +1,3 @@
-
 import os
 import json
 import time
@@ -17,15 +16,16 @@ from cryptography.hazmat.primitives.asymmetric import padding
 # -----------------------------
 # Config
 # -----------------------------
-CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # gallery.project-practice.com
+CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # gallery.example.com
 CLOUDFRONT_KEY_PAIR_ID = os.environ["CLOUDFRONT_KEY_PAIR_ID"].strip()
 PRIVATE_KEY_SECRET_ARN = os.environ["CLOUDFRONT_PRIVATE_KEY_SECRET_ARN"].strip()
 
-# NEW: gallery bucket name for /list
 GALLERY_BUCKET = os.environ["GALLERY_BUCKET"].strip()
 
-# OPTIONAL restriction: "" means allow any root folder "client123/..."
-ALLOWED_PREFIX = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
+# Option A base prefix (uploads/)
+# You said you will set this as an env var.
+# Examples: "uploads" or "uploads/" -> normalized to "uploads/"
+ALLOWED_PREFIX_RAW = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "604800"))  # 7 days
 MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "1209600"))         # 14 days
@@ -38,22 +38,24 @@ COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "false").lower() == "true"
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", CLOUDFRONT_DOMAIN).strip()
 COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
-# /open is served on the GALLERY domain via CloudFront behavior -> API origin
 OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
-
-# NEW: /list path
 LIST_PATH = os.getenv("LIST_PATH", "/list").strip()
 
-# Single app at bucket root
-GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/index.html").strip()
+# Your site lives under /site/
+GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/site/index.html").strip()
 
-# Optional controls for listing
-MAX_LIST_KEYS = int(os.getenv("MAX_LIST_KEYS", "500"))  # hard cap returned to browser
+MAX_LIST_KEYS = int(os.getenv("MAX_LIST_KEYS", "500"))
 ALLOWED_IMAGE_EXT = set(
     e.strip().lower()
     for e in os.getenv("ALLOWED_IMAGE_EXT", ".jpg,.jpeg,.png,.webp,.gif").split(",")
     if e.strip()
 )
+
+# Normalize base prefix once (must end with "/")
+BASE_PREFIX = ALLOWED_PREFIX_RAW.strip().strip("/")
+if not BASE_PREFIX:
+    raise RuntimeError("ALLOWED_FOLDER_PREFIX must not be empty for Option A")
+BASE_PREFIX = BASE_PREFIX + "/"  # e.g. "uploads/"
 
 
 # -----------------------------
@@ -95,6 +97,8 @@ def _normalize_folder(folder: str) -> str:
     """
     Accepts: "client123", "client123/job456", "/client123/job456/"
     Returns: "/client123/" or "/client123/job456/"
+    NOTE: This is the RELATIVE folder under BASE_PREFIX.
+          Users/admins should NOT include BASE_PREFIX here.
     """
     s = (folder or "").strip()
     if not s:
@@ -107,10 +111,10 @@ def _normalize_folder(folder: str) -> str:
     if ".." in s or "//" in s:
         raise ValueError("invalid folder path")
 
-    if ALLOWED_PREFIX:
-        allowed = ALLOWED_PREFIX.rstrip("/") + "/"
-        if not (s + "/").startswith(allowed):
-            raise ValueError(f"folder must start with '{allowed}'")
+    # Safety: if someone includes uploads/ in the folder by mistake, reject it.
+    # This prevents double-prefix bugs like uploads/uploads/client123/.
+    if s.startswith(BASE_PREFIX) or s.startswith(BASE_PREFIX.rstrip("/")):
+        raise ValueError(f"Do not include '{BASE_PREFIX}' in folder. Use e.g. client123/job456/")
 
     if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
         raise ValueError("folder contains invalid characters")
@@ -274,7 +278,7 @@ def _is_allowed_image_key(key: str) -> bool:
 
 def _list_images_for_prefix(prefix: str) -> List[str]:
     """
-    prefix: e.g. "test/" or "client123/job456/"
+    prefix: e.g. "uploads/client123/job456/"
     Returns list of S3 keys under that prefix (filtered by extension).
     """
     keys: List[str] = []
@@ -291,7 +295,6 @@ def _list_images_for_prefix(prefix: str) -> List[str]:
             k = obj.get("Key", "")
             if not k:
                 continue
-            # Skip "folder marker" objects if any
             if k.endswith("/"):
                 continue
             if _is_allowed_image_key(k):
@@ -313,7 +316,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         method = _request_method(event)
         path = _request_path(event)
 
-        # 1) POST /sign -> returns share_url on the GALLERY domain (not execute-api)
+        # 1) POST /sign -> returns share_url on the GALLERY domain
         if method == "POST" and path.endswith("/sign"):
             folder = _parse_folder(event)              # "/client123/job456/"
             ttl_seconds = _parse_ttl_seconds(event)
@@ -326,35 +329,35 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             )
             return _response_json(200, {"share_url": share_url})
 
-        # 2A) GET/HEAD /list -> returns JSON list of images in folder (no manifest needed)
+        # 2A) GET/HEAD /list -> returns JSON list of images in folder
         if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
-            folder = _parse_folder(event)            # "/test/"
-            prefix = folder.lstrip("/")              # "test/"
+            folder = _parse_folder(event)                      # "/client123/job456/"
+            prefix = BASE_PREFIX + folder.lstrip("/")          # "uploads/client123/job456/"
             files = _list_images_for_prefix(prefix)
+
             if method == "HEAD":
-                # HEAD response: no body
-                return {
-                    "statusCode": 200,
-                    "headers": {"Cache-Control": "no-store"},
-                    "body": ""
-                }
+                return {"statusCode": 200, "headers": {"Cache-Control": "no-store"}, "body": ""}
+
             return _response_json(200, {"folder": prefix, "files": files})
 
-        # 2) Only allow cookie minting on GET/HEAD /open
+        # 3) Only allow cookie minting on GET/HEAD /open
         if method not in ("GET", "HEAD"):
             return _response_json(405, {"error": "method_not_allowed"})
 
         if not path.endswith(OPEN_PATH):
             return _response_json(404, {"error": "not_found"})
 
-        folder = _parse_folder(event)
+        folder = _parse_folder(event)          # "/client123/job456/"
         ttl_seconds = _parse_ttl_seconds(event)
 
         now = int(time.time())
         expires_epoch = now + ttl_seconds
 
-        # Scope access to this folder only
-        resource_pattern = f"https://{CLOUDFRONT_DOMAIN}{folder}*"
+        # Scope access to uploads/<folder> only
+        # Example -> https://domain/uploads/client123/job456/*
+        folder_no_slash = folder.lstrip("/")   # "client123/job456/"
+        resource_pattern = f"https://{CLOUDFRONT_DOMAIN}/{BASE_PREFIX}{folder_no_slash}*"
+
         policy_str = _build_custom_policy(resource_pattern, expires_epoch)
         policy_b64, sig_b64 = _sign_policy(policy_str)
 
@@ -364,9 +367,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
         }
 
-        # Redirect to ONE root app page
-        folder_param = folder.lstrip("/")  # "client123/job456/"
-        location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder_param, safe='')}"
+        # Redirect to your app page under /site/
+        location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder_no_slash, safe='')}"
 
         max_age = ttl_seconds if COOKIE_SET_MAX_AGE else None
         return _response_redirect(location, cookies, max_age)

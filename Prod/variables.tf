@@ -4,6 +4,7 @@ locals {
      gallery_domain    = "gallery.${local.apex_domain}"
      admin_domain      = "admin.${local.apex_domain}"
      admin_full_link   = "https://${local.admin_domain}/"
+     admin_full_link2   = "https://${local.admin_domain}"
 
      domain_zone_id = data.aws_route53_zone.main.zone_id
 

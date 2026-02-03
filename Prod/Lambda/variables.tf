@@ -22,10 +22,6 @@ variable "cloudfront_private_key_secret_arn" {
     type = string 
 }
 
-variable "allowed_folder_prefix"{ 
-    type = string 
-    default = ""
-}
 
 variable "default_ttl_seconds" { 
     type = number 
@@ -78,4 +74,16 @@ variable "gallery_bucket_name" {
     type = string
     description = "Gallery Bucket Name"
   
+}
+
+variable "gallery_index_path" {
+    type = string
+    description = "Path to index.html"
+    default = "/site/index.html"
+  
+}
+
+variable "allowed_folder_prefix"{ 
+    type = string 
+    default = "gallery"
 }

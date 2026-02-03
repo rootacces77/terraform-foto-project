@@ -35,3 +35,10 @@ variable "cloudfront_gallery_arn" {
   
 }
 
+
+#
+variable "denied_site_delete_principal_arn" {
+    type = string
+    description = "User ARN's that is denied to delete gallery site folder"
+  
+}

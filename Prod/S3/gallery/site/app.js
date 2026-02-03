@@ -12,7 +12,6 @@ function setTheme(theme) {
 }
 
 function initTheme() {
-  // Light is default as requested.
   const saved = localStorage.getItem(THEME_KEY);
   setTheme(saved === "dark" ? "dark" : "light");
 }
@@ -30,11 +29,11 @@ function normalizeFolder(folder) {
   f = f.replace(/^\/+/, "");
   if (!f) return null;
   if (!f.endsWith("/")) f += "/";
-  return f; // e.g. "test/"
+  return f; // e.g. "client123/job456/"
 }
 
 function isProbablyImage(key) {
-  return /\.(png|jpe?g|gif|webp|avif)$/i.test(key);
+  return /\.(png|jpe?g|gif|webp|avif)$/i.test(key || "");
 }
 
 function basename(key) {
@@ -50,12 +49,20 @@ function safeZipName(folder) {
 }
 
 /**
- * Your server expects: "/<folder><basename>"
- * Example: folder="test/" key="test/abc.png" -> "/test/abc.png"
+ * Option A:
+ * /list returns full keys like:
+ *   "uploads/client123/job456/photo 1.jpg"
+ *
+ * CloudFront expects path:
+ *   "/uploads/client123/job456/photo%201.jpg"
+ *
+ * So we MUST use the key directly (not folder+basename).
  */
-function objUrlFromKey(key, folder) {
-  const name = basename(key);
-  return `/${folder}${encodeURIComponent(name)}`;
+function objUrlFromKey(key) {
+  const clean = (key || "").replace(/^\/+/, ""); // no leading slash
+  // Encode each path segment to preserve "/" but escape spaces etc.
+  const encoded = clean.split("/").map(encodeURIComponent).join("/");
+  return `/${encoded}`;
 }
 
 async function loadList(folder) {
@@ -91,7 +98,7 @@ function openModalAt(idx) {
   CUR = Math.max(0, Math.min(idx, IMAGE_KEYS.length - 1));
   const key = IMAGE_KEYS[CUR];
 
-  const objUrl = objUrlFromKey(key, CURRENT_FOLDER);
+  const objUrl = objUrlFromKey(key);
 
   img.src = objUrl;
   title.textContent = basename(key);
@@ -147,13 +154,15 @@ function renderGrid(keys, folder) {
   grid.innerHTML = "";
 
   IMAGE_KEYS = (keys || []).filter(isProbablyImage);
+
+  // Status shows number of images (you can rename text later if you want)
   document.getElementById("status").textContent = `${IMAGE_KEYS.length} image(s)`;
 
   const dlFolderBtn = document.getElementById("dlFolder");
   dlFolderBtn.style.display = IMAGE_KEYS.length ? "inline-block" : "none";
 
   IMAGE_KEYS.forEach((key, idx) => {
-    const objUrl = objUrlFromKey(key, folder);
+    const objUrl = objUrlFromKey(key);
 
     const tile = document.createElement("div");
     tile.className = "tile";
@@ -190,7 +199,7 @@ async function downloadFolderZip(folder) {
       const key = IMAGE_KEYS[i];
       status.textContent = `Downloading ${i + 1}/${IMAGE_KEYS.length}…`;
 
-      const resp = await fetch(objUrlFromKey(key, folder), { cache: "no-store" });
+      const resp = await fetch(objUrlFromKey(key), { cache: "no-store" });
       if (!resp.ok) throw new Error(`fetch failed for ${basename(key)} (${resp.status})`);
 
       const blob = await resp.blob();
@@ -226,7 +235,7 @@ async function downloadFolderZip(folder) {
   const folder = normalizeFolder(getFolderFromQuery());
 
   if (!folder) {
-    status.textContent = "Missing ?folder=. Example: ?folder=test/";
+    status.textContent = "Missing ?folder=. Example: ?folder=client123/job456/";
     return;
   }
 
@@ -254,6 +263,10 @@ async function downloadFolderZip(folder) {
 
   try {
     const data = await loadList(folder);
+
+    // Accept both:
+    // 1) { files: ["uploads/..."] }
+    // 2) ["uploads/..."]
     const keys = Array.isArray(data) ? data : (data.files || data.keys || []);
     renderGrid(keys, folder);
   } catch (e) {

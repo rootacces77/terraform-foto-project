@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/site/favicon.ico" sizes="any">
   <title>Foto Duga Bijeljina</title>
 
   <style>
@@ -71,57 +72,41 @@
     .wrap {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 10px 14px;
+      padding: 12px 14px;
     }
 
     /* =============================
-       Header layout: logo+title left, controls right
+       Header layout
     ============================= */
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
-      min-height: 64px;
+      gap: 12px;
+      flex-wrap: wrap; /* ok for small widths */
     }
 
-.brandLeft {
-  display: flex;
-  align-items: center;
-  gap: 24px;           /* double space between logo and title */
-  min-width: 0;
-}
-
-.brandLeft img {
-  height: 56px;        /* bigger logo */
-  width: auto;
-  object-fit: contain;
-  border-radius: 12px; /* slightly smoother */
-}
-
-.titleLeft {
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  font-size: 24px;     /* bigger title */
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-    .rightSide {
+    .brandLeft {
       display: flex;
       align-items: center;
-      justify-content: flex-end;
-      gap: 10px;
+      gap: 24px; /* "double space" between logo and title */
       min-width: 0;
     }
 
-    /* Prevent long status text from pushing buttons off screen */
-    #status {
-      max-width: 220px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .brandLeft img {
+      height: 56px; /* bigger logo */
+      width: auto;
+      object-fit: contain;
+      border-radius: 12px;
+      display: block;
+    }
+
+    .titleLeft {
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      font-size: 24px; /* bigger title */
+      line-height: 1.1;
       white-space: nowrap;
-      text-align: right;
     }
 
     .muted {
@@ -131,6 +116,12 @@
     }
 
     .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btnRow {
       display: flex;
       gap: 10px;
       align-items: center;
@@ -146,31 +137,19 @@
       font-size: 13px;
       line-height: 1;
       user-select: none;
+      white-space: nowrap;
     }
     .btn:hover { filter: brightness(1.03); }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-    /* Mobile tweaks */
-    @media (max-width: 560px) {
-      .topbar { min-height: 58px; }
-      .brandLeft img { height: 40px; }
-      .titleLeft { font-size: 16px; }
-
-      /* Hide status on tiny screens so buttons always fit */
-      #status { display: none; }
-
-      .actions { gap: 8px; }
-      .btn { padding: 8px 9px; font-size: 12px; }
-    }
-
     /* =============================
        Instagram-like grid
     ============================= */
-    main.wrap { padding-top: 12px; }
+    main.wrap { padding-top: 14px; }
 
     .grid {
       display: grid;
-      gap: 3px;
+      gap: 3px; /* tight spacing like IG */
       grid-template-columns: repeat(3, 1fr);
     }
 
@@ -181,9 +160,9 @@
     .tile {
       position: relative;
       background: var(--tile-bg);
-      border-radius: 8px;
+      border-radius: 10px;
       overflow: hidden;
-      aspect-ratio: 1 / 1;
+      aspect-ratio: 1 / 1; /* square tiles */
     }
 
     .tile img {
@@ -211,7 +190,7 @@
       padding: 14px;
       z-index: 999;
     }
-    .modal.open { display:flex; }
+    .modal.open { display: flex; }
 
     .modal-inner {
       width: min(1100px, 98vw);
@@ -269,16 +248,16 @@
     }
 
     .navbtn {
-      position:absolute;
-      top:50%;
+      position: absolute;
+      top: 50%;
       transform: translateY(-50%);
       padding: 10px 12px;
       border-radius: 12px;
-      border:1px solid rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.18);
       background: rgba(0,0,0,0.32);
-      color:#fff;
-      cursor:pointer;
-      user-select:none;
+      color: #fff;
+      cursor: pointer;
+      user-select: none;
     }
     .navbtn.left { left: 10px; }
     .navbtn.right { right: 10px; }
@@ -288,20 +267,76 @@
       .navbtn { padding: 8px 10px; }
       .modal-title { max-width: 45vw; }
     }
+
+    /* =============================
+       MOBILE HEADER FIX (PC unchanged)
+       - Row 1: logo + title fully visible
+       - Row 2: buttons full width
+       - Hide status on phone
+    ============================= */
+    @media (max-width: 700px) {
+      .topbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .brandLeft {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 16px; /* still roomy on mobile */
+      }
+
+      .brandLeft img {
+        height: 44px;
+      }
+
+      .titleLeft {
+        font-size: 18px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      #status {
+        display: none;
+      }
+
+      .actions {
+        width: 100%;
+      }
+
+      .btnRow {
+        width: 100%;
+        display: flex;
+        gap: 10px;
+      }
+
+      .btnRow .btn {
+        flex: 1;
+        padding: 10px 10px;
+        font-size: 13px;
+        border-radius: 12px;
+      }
+    }
   </style>
 </head>
 
 <body>
   <header>
     <div class="wrap topbar">
+      <!-- LEFT: logo + title (title next to logo) -->
       <div class="brandLeft">
         <img src="/site/logo.jpg" alt="Logo" />
-        <div class="titleLeft">  Foto  Duga  Bijeljina</div>
+        <div class="titleLeft">Foto Duga Bijeljina</div>
       </div>
 
-      <div class="rightSide">
-        <div id="status" class="muted">Loading…</div>
-        <div class="actions">
+      <!-- MIDDLE: status (hidden on mobile) -->
+      <div id="status" class="muted">Loading…</div>
+
+      <!-- RIGHT: buttons -->
+      <div class="actions">
+        <div class="btnRow">
           <button id="dlFolder" class="btn" style="display:none">Download folder (ZIP)</button>
           <button id="themeToggle" class="btn" type="button">Dark mode</button>
         </div>
@@ -334,8 +369,10 @@
     </div>
   </div>
 
-  <!-- JSZip -->
+  <!-- JSZip for “download folder” -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <!-- Your app -->
   <script src="/site/app.js"></script>
 </body>
 </html>

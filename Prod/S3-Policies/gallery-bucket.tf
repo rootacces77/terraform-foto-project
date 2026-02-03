@@ -1,5 +1,5 @@
   ############################################
-  # gallery Bucket Policy
+  # Gallery Bucket Policy
   ############################################
 
 data "aws_iam_policy_document" "gallery_bucket_policy" {
@@ -25,6 +25,27 @@ data "aws_iam_policy_document" "gallery_bucket_policy" {
       values   = [var.cloudfront_gallery_arn]
     }
   }
+  ############################################
+  # Deny delete on /site/* for one principal
+  ############################################
+  statement {
+    sid    = "DenyDeleteSiteForSpecificPrincipal"
+    effect = "Deny"
+
+    principals {
+      type        = "AWS"
+      identifiers = [var.denied_site_delete_principal_arn]
+    }
+
+    actions = [
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion"
+    ]
+
+    resources = [
+      "${var.gallery_bucket_arn}/site/*"
+    ]
+}
 
 
   ############################################

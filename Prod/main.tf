@@ -105,7 +105,7 @@ module "apigateway" {
     cognito_issuer =  module.cognito.cognito_issuer
     cognito_user_pool_client_id = module.cognito.cognito_user_pool_client_id
 
-    admin_origin = local.admin_full_link
+    admin_origin = local.admin_full_link2
   
 }
 
@@ -172,6 +172,8 @@ module "s3_policies" {
   gallery_bucket_name    = module.s3.gallery_bucket_name
   gallery_bucket_arn     = module.s3.gallery_bucket_arn
   cloudfront_gallery_arn = module.cloudfront.cloudfront_gallery_arn
+
+  denied_site_delete_principal_arn = module.iam.gallery_user_arn
   
 }
 
