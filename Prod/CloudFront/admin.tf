@@ -27,7 +27,7 @@ resource "aws_cloudfront_distribution" "admin" {
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
     # Admin UI: disable caching so updates show instantly (optional)
-    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_1_year.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true

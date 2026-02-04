@@ -29,7 +29,7 @@ variable "default_ttl_seconds" {
 }  # 7 days
 variable "max_ttl_seconds" {
      type = number
-     default = 1209600 
+     default = 2592000 
 }     # 14 days
 variable "redirect_to_index" { 
     type = string
@@ -46,11 +46,12 @@ variable "cookie_httponly" {
 }
 variable "cookie_samesite" { 
     type = string
-    default = "Lax" 
+    default = "None" 
 }
 variable "cookie_set_max_age" { 
     type = string
-    default = "false" 
+    description = "Also set browser cookie policy"
+    default = "true" 
 }
 
 variable "cookie_domain" { 

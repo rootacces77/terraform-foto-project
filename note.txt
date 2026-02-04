@@ -1,7 +1,6 @@
 Enable AWS Organization
 Register Domain
 Create OIDC/Admin
-Create Cognito user (Disable sign up)
 Create Cyberduck Access Keys
 
 

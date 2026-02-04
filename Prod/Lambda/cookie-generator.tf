@@ -27,7 +27,7 @@ resource "aws_lambda_function" "cookie_generator" {
       CLOUDFRONT_PRIVATE_KEY_SECRET_ARN = var.cloudfront_private_key_secret_arn # Secrets Manager ARN
 
       # Recommended defaults (optional)
-      ALLOWED_PREFIX_RAW      = var.allowed_folder_prefix    # e.g. "/clients/"
+      ALLOWED_FOLDER_PREFIX      = var.allowed_folder_prefix    # e.g. "/clients/"
       DEFAULT_TTL_SECONDS     = tostring(var.default_ttl_seconds) # e.g. 604800
       MAX_TTL_SECONDS         = tostring(var.max_ttl_seconds)     # e.g. 1209600
       REDIRECT_TO_INDEX       = var.redirect_to_index        # "true" or "false"

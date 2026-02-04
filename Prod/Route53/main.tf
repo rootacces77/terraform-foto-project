@@ -2,7 +2,36 @@ locals {
   fqdn_web    = "${var.web_sub_domain}"
   fqdn_admin  = "${var.admin_sub_domain}"
   fqdn_gallery = "${var.gallery_sub_domain}"
+  apex_domain  = "${var.root_domain}"
 }
+
+# -----------------------------
+# apex (example.com) -> CloudFront (same distro as www/web)
+# -----------------------------
+resource "aws_route53_record" "apex_a" {
+  zone_id = var.hosted_zone_id
+  name    = local.apex_domain
+  type    = "A"
+
+  alias {
+    name                   = var.cloudfront_web_domain_name
+    zone_id                = var.cloudfront_hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "apex_aaaa" {
+  zone_id = var.hosted_zone_id
+  name    = local.apex_domain
+  type    = "AAAA"
+
+  alias {
+    name                   = var.cloudfront_web_domain_name
+    zone_id                = var.cloudfront_hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
 
 # -----------------------------
 # web.<domain> -> CloudFront

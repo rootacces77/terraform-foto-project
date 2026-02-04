@@ -3,6 +3,8 @@ import json
 import time
 import base64
 import re
+import hmac
+import hashlib
 from typing import Any, Dict, Optional, Tuple, List
 from urllib.parse import quote
 
@@ -13,62 +15,77 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 
-# -----------------------------
-# Config
-# -----------------------------
-CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # gallery.example.com
+# =============================================================================
+# Config (env vars)
+# =============================================================================
+CLOUDFRONT_DOMAIN = os.environ["CLOUDFRONT_DOMAIN"].strip()  # e.g. gallery.project-practice.com
 CLOUDFRONT_KEY_PAIR_ID = os.environ["CLOUDFRONT_KEY_PAIR_ID"].strip()
 PRIVATE_KEY_SECRET_ARN = os.environ["CLOUDFRONT_PRIVATE_KEY_SECRET_ARN"].strip()
-
 GALLERY_BUCKET = os.environ["GALLERY_BUCKET"].strip()
 
-# Option A base prefix (uploads/)
-# You said you will set this as an env var.
-# Examples: "uploads" or "uploads/" -> normalized to "uploads/"
+# Prefix under which client folders live (required). Example: "gallery" or "gallery/"
 ALLOWED_PREFIX_RAW = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 
-DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "604800"))  # 7 days
-MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "1209600"))         # 14 days
+# Cookie TTL bounds (in seconds)
+DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "3600"))   # 1 hour default
+MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "86400"))          # 24 hours max
 
+# Share-link validity (independent of cookie TTL) (seconds)
+DEFAULT_LINK_TTL_SECONDS = int(os.getenv("DEFAULT_LINK_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 days
+
+# Link signing secret (HMAC). Required for stateless tokens.
+LINK_SIGNING_SECRET = os.environ["LINK_SIGNING_SECRET"].encode("utf-8")
+
+# Cookie attributes
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_HTTPONLY = os.getenv("COOKIE_HTTPONLY", "true").lower() == "true"
-COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax")  # Lax/Strict/None
-COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "None")  # "Lax" / "Strict" / "None"
+COOKIE_SET_MAX_AGE = os.getenv("COOKIE_SET_MAX_AGE", "true").lower() == "true"
 
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", CLOUDFRONT_DOMAIN).strip()
 COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
+# Paths
 OPEN_PATH = os.getenv("OPEN_PATH", "/open").strip()
 LIST_PATH = os.getenv("LIST_PATH", "/list").strip()
+SIGN_PATH = os.getenv("SIGN_PATH", "/sign").strip()
 
-# Your site lives under /site/
+# Your static app entry point
 GALLERY_INDEX_PATH = os.getenv("GALLERY_INDEX_PATH", "/site/index.html").strip()
 
 MAX_LIST_KEYS = int(os.getenv("MAX_LIST_KEYS", "500"))
+
 ALLOWED_IMAGE_EXT = set(
     e.strip().lower()
     for e in os.getenv("ALLOWED_IMAGE_EXT", ".jpg,.jpeg,.png,.webp,.gif").split(",")
     if e.strip()
 )
 
+# NEW: ZIP extensions (default ".zip")
+ALLOWED_ZIP_EXT = set(
+    e.strip().lower()
+    for e in os.getenv("ALLOWED_ZIP_EXT", ".zip").split(",")
+    if e.strip()
+)
+
 # Normalize base prefix once (must end with "/")
 BASE_PREFIX = ALLOWED_PREFIX_RAW.strip().strip("/")
 if not BASE_PREFIX:
-    raise RuntimeError("ALLOWED_FOLDER_PREFIX must not be empty for Option A")
-BASE_PREFIX = BASE_PREFIX + "/"  # e.g. "uploads/"
+    raise RuntimeError("ALLOWED_FOLDER_PREFIX must not be empty")
+BASE_PREFIX = BASE_PREFIX + "/"  # e.g. "gallery/"
 
 
-# -----------------------------
-# Globals
-# -----------------------------
+# =============================================================================
+# AWS clients / globals
+# =============================================================================
 _sm = boto3.client("secretsmanager")
 _s3 = boto3.client("s3")
 _private_key_obj = None
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
+# =============================================================================
+# Helpers: CloudFront-safe base64 + signing
+# =============================================================================
 def _cloudfront_url_safe_b64(data: bytes) -> str:
     s = base64.b64encode(data).decode("utf-8")
     return s.replace("+", "-").replace("=", "_").replace("/", "~")
@@ -93,13 +110,69 @@ def _load_private_key() -> Any:
     return key
 
 
+def _build_custom_policy(resource_url_pattern: str, expires_epoch: int) -> str:
+    policy = {
+        "Statement": [
+            {
+                "Resource": resource_url_pattern,
+                "Condition": {"DateLessThan": {"AWS:EpochTime": expires_epoch}},
+            }
+        ]
+    }
+    return json.dumps(policy, separators=(",", ":"))
+
+
+def _sign_policy(policy_str: str) -> Tuple[str, str]:
+    key = _load_private_key()
+    policy_bytes = policy_str.encode("utf-8")
+    signature = key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())
+    policy_b64 = _cloudfront_url_safe_b64(policy_bytes)
+    sig_b64 = _cloudfront_url_safe_b64(signature)
+    return policy_b64, sig_b64
+
+
+# =============================================================================
+# Helpers: stateless share token (HMAC)
+# =============================================================================
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(s: str) -> bytes:
+    s += "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s.encode("utf-8"))
+
+
+def _make_share_token(payload: Dict[str, Any]) -> str:
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sig = hmac.new(LINK_SIGNING_SECRET, body, hashlib.sha256).digest()
+    return f"{_b64url(body)}.{_b64url(sig)}"
+
+
+def _verify_share_token(token: str) -> Dict[str, Any]:
+    try:
+        b, s = token.split(".", 1)
+        body = _b64url_decode(b)
+        sig = _b64url_decode(s)
+    except Exception:
+        raise ValueError("invalid token format")
+
+    expected = hmac.new(LINK_SIGNING_SECRET, body, hashlib.sha256).digest()
+    if not hmac.compare_digest(expected, sig):
+        raise ValueError("invalid token signature")
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception:
+        raise ValueError("invalid token payload")
+
+    return payload
+
+
+# =============================================================================
+# Helpers: request parsing / validation
+# =============================================================================
 def _normalize_folder(folder: str) -> str:
-    """
-    Accepts: "client123", "client123/job456", "/client123/job456/"
-    Returns: "/client123/" or "/client123/job456/"
-    NOTE: This is the RELATIVE folder under BASE_PREFIX.
-          Users/admins should NOT include BASE_PREFIX here.
-    """
     s = (folder or "").strip()
     if not s:
         raise ValueError("folder is required")
@@ -111,10 +184,9 @@ def _normalize_folder(folder: str) -> str:
     if ".." in s or "//" in s:
         raise ValueError("invalid folder path")
 
-    # Safety: if someone includes uploads/ in the folder by mistake, reject it.
-    # This prevents double-prefix bugs like uploads/uploads/client123/.
+    # Prevent accidental double-prefix
     if s.startswith(BASE_PREFIX) or s.startswith(BASE_PREFIX.rstrip("/")):
-        raise ValueError(f"Do not include '{BASE_PREFIX}' in folder. Use e.g. client123/job456/")
+        raise ValueError(f"Do not include '{BASE_PREFIX}' in folder.")
 
     if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
         raise ValueError("folder contains invalid characters")
@@ -134,118 +206,54 @@ def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
 
-def _parse_ttl_seconds(event: Dict[str, Any]) -> int:
+def _parse_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
     ttl = None
-
     q = event.get("queryStringParameters") or {}
     if "cookie_retention_seconds" in q:
         ttl = q.get("cookie_retention_seconds")
     elif "cookie_retention" in q:
         ttl = q.get("cookie_retention")
 
-    if ttl is None and event.get("multiValueQueryStringParameters"):
-        mv = event["multiValueQueryStringParameters"]
-        if "cookie_retention_seconds" in mv and mv["cookie_retention_seconds"]:
-            ttl = mv["cookie_retention_seconds"][0]
-
     payload = _parse_json_body(event)
     if ttl is None:
         ttl = payload.get("cookie_retention_seconds") or payload.get("cookie_retention")
 
     ttl_seconds = DEFAULT_TTL_SECONDS if ttl is None else int(ttl)
-
     if ttl_seconds < 60:
-        raise ValueError("cookie_retention_seconds must be >= 60 seconds")
-
+        raise ValueError("cookie_retention_seconds must be >= 60")
     return min(ttl_seconds, MAX_TTL_SECONDS)
 
 
-def _parse_folder(event: Dict[str, Any]) -> str:
-    folder = None
+def _parse_link_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
+    link_ttl = None
+    q = event.get("queryStringParameters") or {}
+    if "link_ttl_seconds" in q:
+        link_ttl = q.get("link_ttl_seconds")
 
+    payload = _parse_json_body(event)
+    if link_ttl is None:
+        link_ttl = payload.get("link_ttl_seconds")
+
+    link_ttl_seconds = DEFAULT_LINK_TTL_SECONDS if link_ttl is None else int(link_ttl)
+    if link_ttl_seconds < 60:
+        raise ValueError("link_ttl_seconds must be >= 60")
+    return link_ttl_seconds
+
+
+def _parse_folder_from_admin_request(event: Dict[str, Any]) -> str:
+    folder = None
     q = event.get("queryStringParameters") or {}
     if "folder" in q:
         folder = q["folder"]
 
+    payload = _parse_json_body(event)
     if folder is None:
-        payload = _parse_json_body(event)
         folder = payload.get("folder") or payload.get("path")
 
     if folder is None:
         raise ValueError("folder parameter is required")
 
     return _normalize_folder(folder)
-
-
-def _build_custom_policy(resource_url_pattern: str, expires_epoch: int) -> str:
-    policy = {
-        "Statement": [
-            {
-                "Resource": resource_url_pattern,
-                "Condition": {"DateLessThan": {"AWS:EpochTime": expires_epoch}},
-            }
-        ]
-    }
-    return json.dumps(policy, separators=(",", ":"))
-
-
-def _sign_policy(policy_str: str) -> Tuple[str, str]:
-    key = _load_private_key()
-    policy_bytes = policy_str.encode("utf-8")
-
-    signature = key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())
-
-    policy_b64 = _cloudfront_url_safe_b64(policy_bytes)
-    sig_b64 = _cloudfront_url_safe_b64(signature)
-    return policy_b64, sig_b64
-
-
-def _cookie_attrs(max_age: Optional[int]) -> str:
-    parts = [f"Path={COOKIE_PATH}"]
-
-    if COOKIE_DOMAIN:
-        parts.append(f"Domain={COOKIE_DOMAIN}")
-
-    if COOKIE_SECURE:
-        parts.append("Secure")
-
-    if COOKIE_HTTPONLY:
-        parts.append("HttpOnly")
-
-    parts.append(f"SameSite={COOKIE_SAMESITE}")
-
-    if max_age is not None:
-        parts.append(f"Max-Age={max_age}")
-
-    return "; ".join(parts)
-
-
-def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
-    cookie_strings = []
-    attrs = _cookie_attrs(max_age)
-
-    for k, v in cookies.items():
-        cookie_strings.append(f"{k}={v}; {attrs}")
-
-    return {
-        "statusCode": 302,
-        "headers": {
-            "Location": location,
-            "Cache-Control": "no-store",
-            "Pragma": "no-cache",
-        },
-        "cookies": cookie_strings,                 # HTTP API v2
-        "multiValueHeaders": {"Set-Cookie": cookie_strings},  # REST API
-        "body": "",
-    }
-
-
-def _response_json(status: int, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "statusCode": status,
-        "headers": {"Content-Type": "application/json", "Cache-Control": "no-store"},
-        "body": json.dumps(payload),
-    }
 
 
 def _request_method(event: Dict[str, Any]) -> str:
@@ -268,22 +276,74 @@ def _request_path(event: Dict[str, Any]) -> str:
     return "/"
 
 
+# =============================================================================
+# Helpers: response building
+# =============================================================================
+def _cookie_attrs(max_age: Optional[int]) -> str:
+    parts = [f"Path={COOKIE_PATH}"]
+
+    if COOKIE_DOMAIN:
+        parts.append(f"Domain={COOKIE_DOMAIN}")
+    if COOKIE_SECURE:
+        parts.append("Secure")
+    if COOKIE_HTTPONLY:
+        parts.append("HttpOnly")
+
+    parts.append(f"SameSite={COOKIE_SAMESITE}")
+
+    if max_age is not None:
+        parts.append(f"Max-Age={max_age}")
+
+    return "; ".join(parts)
+
+
+def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
+    cookie_strings = []
+    attrs = _cookie_attrs(max_age)
+
+    for k, v in cookies.items():
+        cookie_strings.append(f"{k}={v}; {attrs}")
+
+    return {
+        "statusCode": 302,
+        "headers": {"Location": location, "Cache-Control": "no-store", "Pragma": "no-cache"},
+        "cookies": cookie_strings,
+        "multiValueHeaders": {"Set-Cookie": cookie_strings},
+        "body": "",
+    }
+
+
+def _response_json(status: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "statusCode": status,
+        "headers": {"Content-Type": "application/json", "Cache-Control": "no-store"},
+        "body": json.dumps(payload),
+    }
+
+
+# =============================================================================
+# Helpers: list images + zip from S3
+# =============================================================================
 def _is_allowed_image_key(key: str) -> bool:
     lk = key.lower()
-    for ext in ALLOWED_IMAGE_EXT:
-        if lk.endswith(ext):
-            return True
-    return False
+    return any(lk.endswith(ext) for ext in ALLOWED_IMAGE_EXT)
 
 
-def _list_images_for_prefix(prefix: str) -> List[str]:
+def _is_allowed_zip_key(key: str) -> bool:
+    lk = key.lower()
+    return any(lk.endswith(ext) for ext in ALLOWED_ZIP_EXT)
+
+
+def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
     """
-    prefix: e.g. "uploads/client123/job456/"
-    Returns list of S3 keys under that prefix (filtered by extension).
+    prefix: e.g. "gallery/client123/job456/"
+    Returns: (image_keys, newest_zip_key_or_none)
     """
-    keys: List[str] = []
+    image_keys: List[str] = []
+    zip_best_key: Optional[str] = None
+    zip_best_last_modified = None
+
     token: Optional[str] = None
-
     while True:
         args = {"Bucket": GALLERY_BUCKET, "Prefix": prefix, "MaxKeys": 1000}
         if token:
@@ -293,71 +353,128 @@ def _list_images_for_prefix(prefix: str) -> List[str]:
 
         for obj in resp.get("Contents", []):
             k = obj.get("Key", "")
-            if not k:
+            if not k or k.endswith("/"):
                 continue
-            if k.endswith("/"):
-                continue
+
             if _is_allowed_image_key(k):
-                keys.append(k)
-                if len(keys) >= MAX_LIST_KEYS:
-                    return keys
+                image_keys.append(k)
+
+            if _is_allowed_zip_key(k):
+                lm = obj.get("LastModified")
+                if zip_best_last_modified is None or (lm and lm > zip_best_last_modified):
+                    zip_best_last_modified = lm
+                    zip_best_key = k
 
         if not resp.get("IsTruncated"):
-            return keys
+            break
 
         token = resp.get("NextContinuationToken")
 
+    # Cap images to MAX_LIST_KEYS
+    if len(image_keys) > MAX_LIST_KEYS:
+        image_keys = image_keys[:MAX_LIST_KEYS]
 
-# -----------------------------
+    return image_keys, zip_best_key
+
+
+# =============================================================================
 # Lambda handler
-# -----------------------------
+# =============================================================================
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         method = _request_method(event)
         path = _request_path(event)
 
-        # 1) POST /sign -> returns share_url on the GALLERY domain
-        if method == "POST" and path.endswith("/sign"):
-            folder = _parse_folder(event)              # "/client123/job456/"
-            ttl_seconds = _parse_ttl_seconds(event)
+        # ---------------------------------------------------------------------
+        # 1) Admin endpoint: POST /sign -> returns share_url
+        # ---------------------------------------------------------------------
+        if method == "POST" and path.endswith(SIGN_PATH):
+            folder = _parse_folder_from_admin_request(event)          # "/client123/job456/"
+            cookie_ttl_seconds = _parse_ttl_seconds_from_admin_request(event)
+            link_ttl_seconds = _parse_link_ttl_seconds_from_admin_request(event)
 
-            folder_param = folder.lstrip("/")          # "client123/job456/"
-            share_url = (
-                f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}"
-                f"?folder={quote(folder_param, safe='')}"
-                f"&cookie_retention_seconds={ttl_seconds}"
-            )
+            folder_param = folder.lstrip("/")                         # "client123/job456/"
+            now = int(time.time())
+            link_exp = now + link_ttl_seconds
+
+            token_payload = {
+                "folder": folder_param,
+                "cookie_ttl_seconds": cookie_ttl_seconds,
+                "link_exp": link_exp,
+            }
+            share_token = _make_share_token(token_payload)
+
+            share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={quote(share_token, safe='')}"
             return _response_json(200, {"share_url": share_url})
 
-        # 2A) GET/HEAD /list -> returns JSON list of images in folder
+        # ---------------------------------------------------------------------
+        # 2) GET/HEAD /list?folder=... -> list image keys + newest zip key
+        # ---------------------------------------------------------------------
         if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
-            folder = _parse_folder(event)                      # "/client123/job456/"
-            prefix = BASE_PREFIX + folder.lstrip("/")          # "uploads/client123/job456/"
-            files = _list_images_for_prefix(prefix)
+            folder = None
+            q = event.get("queryStringParameters") or {}
+            if "folder" in q:
+                folder = q["folder"]
+            if folder is None:
+                payload = _parse_json_body(event)
+                folder = payload.get("folder") or payload.get("path")
+            if folder is None:
+                raise ValueError("folder parameter is required")
+
+            folder_norm = _normalize_folder(folder)                   # "/client123/job456/"
+            prefix = BASE_PREFIX + folder_norm.lstrip("/")            # "gallery/client123/job456/"
+
+            files, zip_key = _list_folder_for_prefix(prefix)
 
             if method == "HEAD":
                 return {"statusCode": 200, "headers": {"Cache-Control": "no-store"}, "body": ""}
 
-            return _response_json(200, {"folder": prefix, "files": files})
+            out = {"folder": prefix, "files": files}
+            if zip_key:
+                out["zip"] = zip_key
+            return _response_json(200, out)
 
-        # 3) Only allow cookie minting on GET/HEAD /open
+        # ---------------------------------------------------------------------
+        # 3) Public endpoint: GET/HEAD /open?t=... -> set cookies + redirect
+        # ---------------------------------------------------------------------
         if method not in ("GET", "HEAD"):
             return _response_json(405, {"error": "method_not_allowed"})
 
         if not path.endswith(OPEN_PATH):
             return _response_json(404, {"error": "not_found"})
 
-        folder = _parse_folder(event)          # "/client123/job456/"
-        ttl_seconds = _parse_ttl_seconds(event)
+        q = event.get("queryStringParameters") or {}
+        token = q.get("t")
+        if not token:
+            mv = event.get("multiValueQueryStringParameters") or {}
+            tlist = mv.get("t")
+            if tlist:
+                token = tlist[0]
+        if not token:
+            raise ValueError("t parameter is required")
 
+        payload = _verify_share_token(token)
+
+        folder_param = payload.get("folder")
+        if not isinstance(folder_param, str) or not folder_param.strip():
+            raise ValueError("token missing folder")
+
+        cookie_ttl_seconds = int(payload.get("cookie_ttl_seconds", DEFAULT_TTL_SECONDS))
+        if cookie_ttl_seconds < 60:
+            cookie_ttl_seconds = 60
+        cookie_ttl_seconds = min(cookie_ttl_seconds, MAX_TTL_SECONDS)
+
+        link_exp = int(payload.get("link_exp", 0))
         now = int(time.time())
-        expires_epoch = now + ttl_seconds
+        if link_exp and now > link_exp:
+            return _response_json(403, {"error": "link_expired"})
 
-        # Scope access to uploads/<folder> only
-        # Example -> https://domain/uploads/client123/job456/*
-        folder_no_slash = folder.lstrip("/")   # "client123/job456/"
+        folder_norm = _normalize_folder(folder_param)                 # "/client123/job456/"
+        folder_no_slash = folder_norm.lstrip("/")                     # "client123/job456/"
+
+        expires_epoch = now + cookie_ttl_seconds
+
         resource_pattern = f"https://{CLOUDFRONT_DOMAIN}/{BASE_PREFIX}{folder_no_slash}*"
-
         policy_str = _build_custom_policy(resource_pattern, expires_epoch)
         policy_b64, sig_b64 = _sign_policy(policy_str)
 
@@ -367,10 +484,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
         }
 
-        # Redirect to your app page under /site/
-        location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder_no_slash, safe='')}"
+        location = (
+            f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}"
+            f"?folder={quote(folder_no_slash, safe='')}"
+        )
 
-        max_age = ttl_seconds if COOKIE_SET_MAX_AGE else None
+        max_age = cookie_ttl_seconds if COOKIE_SET_MAX_AGE else None
         return _response_redirect(location, cookies, max_age)
 
     except ValueError as ve:

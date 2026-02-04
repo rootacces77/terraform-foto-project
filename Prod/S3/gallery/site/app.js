@@ -49,18 +49,18 @@ function safeZipName(folder) {
 }
 
 /**
- * Option A:
  * /list returns full keys like:
- *   "uploads/client123/job456/photo 1.jpg"
+ *   "gallery/client123/job456/photo 1.jpg"
+ * or zip:
+ *   "gallery/client123/job456/some-file.zip"
  *
  * CloudFront expects path:
- *   "/uploads/client123/job456/photo%201.jpg"
+ *   "/gallery/client123/job456/photo%201.jpg"
  *
- * So we MUST use the key directly (not folder+basename).
+ * So we MUST use the key directly and encode per path segment.
  */
 function objUrlFromKey(key) {
   const clean = (key || "").replace(/^\/+/, ""); // no leading slash
-  // Encode each path segment to preserve "/" but escape spaces etc.
   const encoded = clean.split("/").map(encodeURIComponent).join("/");
   return `/${encoded}`;
 }
@@ -88,6 +88,9 @@ function triggerDownloadBlob(blob, filename) {
 let IMAGE_KEYS = [];
 let CUR = 0;
 let CURRENT_FOLDER = null;
+
+// NEW: zip key returned by /list
+let ZIP_KEY = null;
 
 function openModalAt(idx) {
   const modal = document.getElementById("modal");
@@ -155,11 +158,13 @@ function renderGrid(keys, folder) {
 
   IMAGE_KEYS = (keys || []).filter(isProbablyImage);
 
-  // Status shows number of images (you can rename text later if you want)
+  // Status shows number of images
   document.getElementById("status").textContent = `${IMAGE_KEYS.length} image(s)`;
 
+  // Always show Download button (requested)
   const dlFolderBtn = document.getElementById("dlFolder");
-  dlFolderBtn.style.display = IMAGE_KEYS.length ? "inline-block" : "none";
+  dlFolderBtn.style.display = "inline-block";
+  dlFolderBtn.disabled = false;
 
   IMAGE_KEYS.forEach((key, idx) => {
     const objUrl = objUrlFromKey(key);
@@ -179,41 +184,35 @@ function renderGrid(keys, folder) {
 }
 
 /* =============================
-   Download folder as ZIP
+   Download folder as ZIP (server-side ZIP stored in S3)
+   - Does NOT build zip in browser
+   - Uses ZIP_KEY returned by /list
 ============================= */
 async function downloadFolderZip(folder) {
   const status = document.getElementById("status");
   const btn = document.getElementById("dlFolder");
 
-  if (!window.JSZip) {
-    status.textContent = "ZIP library not loaded (JSZip).";
+  if (!ZIP_KEY) {
+    status.textContent = "ZIP is not available yet for this folder.";
     return;
   }
-  if (!IMAGE_KEYS.length) return;
 
   btn.disabled = true;
-  const zip = new JSZip();
 
   try {
-    for (let i = 0; i < IMAGE_KEYS.length; i++) {
-      const key = IMAGE_KEYS[i];
-      status.textContent = `Downloading ${i + 1}/${IMAGE_KEYS.length}…`;
+    const zipUrl = objUrlFromKey(ZIP_KEY);
 
-      const resp = await fetch(objUrlFromKey(key), { cache: "no-store" });
-      if (!resp.ok) throw new Error(`fetch failed for ${basename(key)} (${resp.status})`);
+    const resp = await fetch(zipUrl, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`ZIP download failed (${resp.status})`);
 
-      const blob = await resp.blob();
-      zip.file(basename(key), blob);
-    }
+    const blob = await resp.blob();
 
-    status.textContent = "Building ZIP…";
-    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const filename = basename(ZIP_KEY) || `${safeZipName(folder)}.zip`;
+    triggerDownloadBlob(blob, filename);
 
-    const name = `${safeZipName(folder)}.zip`;
-    triggerDownloadBlob(zipBlob, name);
-    status.textContent = `Downloaded ${name}`;
+    status.textContent = `Downloaded ${filename}`;
   } catch (e) {
-    status.textContent = `ZIP failed: ${e.message}`;
+    status.textContent = `ZIP download failed: ${e.message}`;
   } finally {
     btn.disabled = false;
   }
@@ -258,18 +257,30 @@ async function downloadFolderZip(folder) {
     if (e.key === "ArrowLeft") prevImg();
   });
 
-  // Folder ZIP button
+  // Folder ZIP button (always visible)
   document.getElementById("dlFolder").addEventListener("click", () => downloadFolderZip(folder));
 
   try {
     const data = await loadList(folder);
 
-    // Accept both:
-    // 1) { files: ["uploads/..."] }
-    // 2) ["uploads/..."]
+    // Expecting:
+    // { folder: "...", files: [...], zip: "gallery/.../something.zip" }
+    // OR fallback: { files: [...] } / array
+    ZIP_KEY = Array.isArray(data) ? null : (data.zip || null);
+
+    // If list response is an array, treat as files list
     const keys = Array.isArray(data) ? data : (data.files || data.keys || []);
     renderGrid(keys, folder);
+
+    // Optional hint
+    if (!ZIP_KEY) {
+      status.textContent = `${IMAGE_KEYS.length} image(s) • ZIP not available yet`;
+    }
   } catch (e) {
     status.textContent = `Could not load list: ${e.message}`;
+    // Still keep button visible (renderGrid not called here)
+    const dlFolderBtn = document.getElementById("dlFolder");
+    if (dlFolderBtn) dlFolderBtn.style.display = "inline-block";
   }
 })();
+

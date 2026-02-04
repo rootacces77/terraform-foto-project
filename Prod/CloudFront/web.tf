@@ -25,8 +25,8 @@ resource "aws_cloudfront_distribution" "web" {
     allowed_methods = ["GET", "HEAD", "OPTIONS"]
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
-    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_1_year.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
   }

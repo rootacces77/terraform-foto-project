@@ -17,6 +17,7 @@ resource "aws_cloudfront_distribution" "gallery" {
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
+  # origin for gallery ( S3 )
   default_cache_behavior {
     target_origin_id       = "s3-gallery-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -27,14 +28,14 @@ resource "aws_cloudfront_distribution" "gallery" {
     # Enforce signed cookies/URLs via trusted key group
     trusted_key_groups = [aws_cloudfront_key_group.gallery_signer.id]
 
-    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_30_days.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
   }
 
 
-  # NEW: origin for /open endpoint (API Gateway/Lambda URL/ALB)
+  # origin for /open /list endpoint (API Gateway/Lambda URL/ALB)
   origin {
     origin_id   = "api-origin"
     domain_name = var.api_open_origin_domain_name
@@ -77,48 +78,13 @@ resource "aws_cloudfront_distribution" "gallery" {
     cached_methods  = ["GET", "HEAD"]
 
 
-    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_5_minutes.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
    
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
   }
 
-/*
-  # PUBLIC: index.html
-  ordered_cache_behavior {
-    path_pattern           = "index.html"
-    target_origin_id       = "s3-gallery-origin"
-    viewer_protocol_policy = "redirect-to-https"
-
-    allowed_methods = ["GET", "HEAD", "OPTIONS"]
-    cached_methods  = ["GET", "HEAD", "OPTIONS"]
-
-    # NO signed cookies required for index.html
-    # trusted_key_groups omitted or set empty
-
-    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
-    compress                   = true
-}
-
-# PUBLIC: app.js
-ordered_cache_behavior {
-  path_pattern           = "app.js"
-  target_origin_id       = "s3-gallery-origin"
-  viewer_protocol_policy = "redirect-to-https"
-
-  allowed_methods = ["GET", "HEAD", "OPTIONS"]
-  cached_methods  = ["GET", "HEAD", "OPTIONS"]
-
-  cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-  origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
-  response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
-  compress                   = true
-}
-
-*/
 
   # PUBLIC: site assets (no signed cookies required)
   ordered_cache_behavior {
@@ -130,12 +96,29 @@ ordered_cache_behavior {
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
     # IMPORTANT: no trusted_key_groups here, so it is public
-    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_1_year.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
   }
-  
+
+    # PRIVATE: gallery images (signed cookies required)
+  ordered_cache_behavior {
+    path_pattern           = "/gallery/*"
+    target_origin_id       = "s3-gallery-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+
+    trusted_key_groups = [aws_cloudfront_key_group.gallery_signer.id]
+
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_30_days.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+  }
+
   viewer_certificate {
     acm_certificate_arn            = var.acm_certificate_arn
     ssl_support_method             = "sni-only"
