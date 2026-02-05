@@ -76,11 +76,13 @@ data "aws_iam_policy_document" "lambda_dynamodb" {
       "dynamodb:PutItem",
       "dynamodb:DeleteItem",
       "dynamodb:UpdateItem",
-      "dynamodb:Scan"
+      "dynamodb:Scan",
+      "dynamodb:Query"
     ]
 
     resources = [
-      var.dynamodb_table_arn
+      var.dynamodb_table_arn,
+      "${var.dynamodb_table_arn}/index/*"
     ]
   }
 
