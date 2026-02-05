@@ -1,11 +1,11 @@
 # terraform-foto-project
 
-![Alt text](diagram/project3-foto.png)
+![Alt text](diagram/project3-fotox.png)
 
 # Secure Photo Gallery on AWS (CloudFront + S3 + Lambda + DynamoDB + Cognito)
 
 A production-style, serverless photo gallery for sharing client folders securely via expiring links and CloudFront signed cookies.  
-Includes an admin portal to generate/revoke share links, and a public gallery UI with lightbox + optional ZIP download.
+Includes an admin portal to generate/revoke share links, and a public gallery UI.
 
 ---
 
