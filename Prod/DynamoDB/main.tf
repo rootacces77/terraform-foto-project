@@ -2,10 +2,10 @@ resource "aws_dynamodb_table" "share_links" {
   name         = var.share_links_table_name
   billing_mode = "PAY_PER_REQUEST"
 
-  hash_key = "token"
+  hash_key = "link_token"
 
   attribute {
-    name = "token"
+    name = "link_token"
     type = "S"
   }
 
@@ -31,6 +31,6 @@ resource "aws_dynamodb_table" "share_links" {
   point_in_time_recovery {
     enabled = true
   }
-  
+
   tags = var.tags
 }

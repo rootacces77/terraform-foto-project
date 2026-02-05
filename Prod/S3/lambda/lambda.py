@@ -340,7 +340,7 @@ def _new_token() -> str:
 
 def _ddb_get_token(token: str) -> Optional[Dict[str, Any]]:
     try:
-        resp = _table.get_item(Key={"token": token}, ConsistentRead=True)
+        resp = _table.get_item(Key={"link_token": token}, ConsistentRead=True)
         return resp.get("Item")
     except Exception:
         return None
@@ -383,7 +383,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 scanned += int(resp.get("ScannedCount", 0) or 0)
 
                 for it in resp.get("Items", []):
-                    token = (it.get("token") or "").strip()
+                    token = (it.get("link_token") or "").strip()
                     folder = (it.get("folder") or "").strip()
                     link_exp = int(it.get("link_exp", 0) or 0)
                     cookie_ttl = int(it.get("cookie_ttl_seconds", DEFAULT_TTL_SECONDS) or DEFAULT_TTL_SECONDS)
@@ -429,7 +429,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             ttl_epoch = int(link_exp) + int(TOKEN_TTL_BUFFER_SECONDS)
 
             item = {
-                "token": token,
+                "link_token": token,
                 "folder": folder,
                 "link_exp": int(link_exp),
                 "cookie_ttl_seconds": int(cookie_ttl_seconds),
@@ -440,7 +440,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # ensure uniqueness
             _table.put_item(
                 Item=item,
-                ConditionExpression="attribute_not_exists(token)",
+                ConditionExpression="attribute_not_exists(link_token)",
             )
 
             share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={token}"
@@ -455,7 +455,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if not token:
                 return _response_json(400, {"error": "missing_token"})
 
-            _table.delete_item(Key={"token": token})
+            _table.delete_item(Key={"link_token": token})
             return _response_json(200, {"ok": True, "revoked": token})
 
         # ---------------------------------------------------------------------

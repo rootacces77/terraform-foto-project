@@ -7,29 +7,36 @@
   <title>Admin – Generate Gallery Link</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #0b1220; color: #e6edf3; }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 32px 16px; }
-    .card { background: #111a2e; border: 1px solid #1e2a44; border-radius: 14px; padding: 20px; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 32px 16px; }
+
+    .card { background: #111a2e; border: 1px solid #1e2a44; border-radius: 14px; padding: 20px; margin-top: 14px; }
     h1 { margin: 0 0 8px; font-size: 20px; }
     p { margin: 0 0 16px; color: #b6c2d0; }
+
     label { display: block; margin: 14px 0 6px; font-size: 13px; color: #b6c2d0; }
-    input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a3a5a; background: #0b1220; color: #e6edf3; outline: none; }
+    input {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #2a3a5a; background: #0b1220; color: #e6edf3; outline: none;
+    }
     input::placeholder { color: #6e7f99; }
+
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+
     .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
     button { padding: 10px 14px; border-radius: 10px; border: 1px solid #2a3a5a; background: #162543; color: #e6edf3; cursor: pointer; }
     button.primary { background: #2b69ff; border-color: #2b69ff; color: #ffffff; }
     button.danger { background: #3a1020; border-color: #6a1a34; color: #ffd7e1; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
+
     .msg { margin-top: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a3a5a; background: #0b1220; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .ok { border-color: #1f8f4a; }
     .err { border-color: #b42318; }
+
     .topbar { display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; }
     .auth { display:flex; gap: 10px; align-items:center; }
     .pill { padding: 6px 10px; border: 1px solid #2a3a5a; border-radius: 999px; font-size: 12px; color: #b6c2d0; }
-
-    .split { display:grid; grid-template-columns: 420px 1fr; gap: 14px; align-items:start; }
-    @media (max-width: 920px) { .split { grid-template-columns: 1fr; } }
 
     .toolbar { display:flex; gap: 10px; align-items:center; justify-content: space-between; flex-wrap: wrap; }
     .toolbar .left { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
@@ -40,7 +47,11 @@
     .folderHead { display:flex; justify-content: space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
     .folderName { font-weight: 800; }
     .links { margin-top: 10px; display: grid; gap: 8px; }
-    .linkRow { display:grid; grid-template-columns: 1fr auto; gap: 10px; align-items:center; padding: 10px; border-radius: 10px; border: 1px solid #1e2a44; background: #0b1220; }
+
+    .linkRow {
+      display:grid; grid-template-columns: 1fr auto; gap: 10px; align-items:center;
+      padding: 10px; border-radius: 10px; border: 1px solid #1e2a44; background: #0b1220;
+    }
     .linkMeta { display:flex; flex-direction: column; gap: 6px; }
     .linkUrl { word-break: break-all; font-size: 12px; color: #e6edf3; }
     .linkInfo { display:flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #b6c2d0; }
@@ -57,7 +68,7 @@
     <div class="topbar">
       <div>
         <h1>Generate share link</h1>
-        <p>Creates a client share link for a specific folder. Below you can also see active links and revoke them.</p>
+        <p>Creates a client share link for a specific folder. You can also list active links and revoke them.</p>
       </div>
 
       <div class="auth">
@@ -67,48 +78,48 @@
       </div>
     </div>
 
-    <div class="split">
-      <!-- LEFT: generate -->
-      <div class="card">
-        <div class="row">
-          <div>
-            <label for="folder">Folder Name</label>
-            <input id="folder" placeholder="client123/job456" value="" />
-          </div>
-          <div>
-            <label for="days">Link retention (days)</label>
-            <input id="days" type="number" min="1" max="30" value="7" />
-          </div>
+    <!-- Generate -->
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="folder">Folder Name</label>
+          <input id="folder" placeholder="client123/job456" value="" />
         </div>
-
-        <div class="btns">
-          <button class="primary" id="btnGenerate">Generate link</button>
-          <button id="btnCopy" disabled>Copy link</button>
-          <button id="btnOpen" disabled>Open link</button>
+        <div>
+          <label for="days">Link retention (days)</label>
+          <input id="days" type="number" min="1" max="30" value="7" />
         </div>
-
-        <div id="status" class="msg" style="display:none;"></div>
-        <div id="result" class="msg mono" style="display:none;"></div>
       </div>
 
-      <!-- RIGHT: list active links -->
-      <div class="card">
-        <div class="toolbar">
-          <div class="left">
-            <div style="font-weight:800;">Active links</div>
-            <input id="search" class="searchInput" placeholder="Filter by folder (e.g. client123)" />
-          </div>
-          <div class="left">
-            <button id="btnRefresh" disabled>Refresh</button>
-          </div>
-        </div>
-        <div class="small" style="margin-top:8px;">
-          Shows active links stored in DynamoDB. Click <b>Disable</b> to revoke a link immediately.
+      <div class="btns">
+        <button class="primary" id="btnGenerate">Generate link</button>
+        <button id="btnCopy" disabled>Copy link</button>
+        <button id="btnOpen" disabled>Open link</button>
+      </div>
+
+      <div id="status" class="msg" style="display:none;"></div>
+      <div id="result" class="msg mono" style="display:none;"></div>
+    </div>
+
+    <!-- Active links (UNDER generate) -->
+    <div class="card">
+      <div class="toolbar">
+        <div class="left">
+          <div style="font-weight:800;">Active links</div>
+          <input id="search" class="searchInput" placeholder="Filter by folder (e.g. client123)" />
         </div>
 
-        <div id="linksStatus" class="msg" style="display:none;"></div>
-        <div id="folders" class="folders"></div>
+        <div class="left">
+          <button id="btnLoadLinks" disabled>Load active links</button>
+        </div>
       </div>
+
+      <div class="small" style="margin-top:8px;">
+        Click <b>Load active links</b> to query DynamoDB (Option A scan). Click <b>Disable</b> to revoke a link immediately.
+      </div>
+
+      <div id="linksStatus" class="msg" style="display:none;"></div>
+      <div id="folders" class="folders"></div>
     </div>
   </div>
 

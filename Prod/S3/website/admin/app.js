@@ -8,6 +8,9 @@ const CONFIG = {
   REVOKE_API_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/revoke",
   ADMIN_LIST_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/admin/links",
 
+  // Must match your gallery domain
+  GALLERY_OPEN_BASE: "https://gallery.project-practice.com/open?t=",
+
   MAX_DAYS: 30,
   MIN_DAYS: 1,
 };
@@ -29,7 +32,7 @@ const btnGenerate = el("btnGenerate");
 const btnCopy = el("btnCopy");
 const btnOpen = el("btnOpen");
 
-const btnRefresh = el("btnRefresh");
+const btnLoadLinks = el("btnLoadLinks");
 const searchInput = el("search");
 
 const authStatus = el("authStatus");
@@ -44,7 +47,9 @@ const foldersRoot = el("folders");
 let shareUrl = null;
 let lastItems = [];
 
-
+// --------------------
+// UI helpers
+// --------------------
 function showStatus(msg, type = "ok") {
   statusBox.style.display = "block";
   statusBox.classList.remove("ok", "err");
@@ -74,18 +79,30 @@ function hideLinksStatus() {
   linksStatus.textContent = "";
 }
 
+function clearFoldersUI() {
+  foldersRoot.innerHTML = "";
+}
+
+// --------------------
+// Auth helpers
+// --------------------
 function isLoggedIn() {
   const t = sessionStorage.getItem(STORAGE.accessToken);
   const exp = parseInt(sessionStorage.getItem(STORAGE.expiresAt) || "0", 10);
   const now = Math.floor(Date.now() / 1000);
-  return !!t && exp > now + 30;
+  return !!t && exp > now + 30; // 30s skew
+}
+
+function getAccessTokenOrNull() {
+  if (!isLoggedIn()) return null;
+  return sessionStorage.getItem(STORAGE.accessToken);
 }
 
 function updateAuthUI() {
   const ok = isLoggedIn();
   authStatus.textContent = ok ? "Logged in" : "Not logged in";
   btnLogout.disabled = !ok;
-  btnRefresh.disabled = !ok;
+  btnLoadLinks.disabled = !ok;
 }
 
 btnCopy.addEventListener("click", async () => {
@@ -106,12 +123,9 @@ function normalizeFolderPrefix(input) {
   return s + "/";
 }
 
-function getAccessTokenOrNull() {
-  if (!isLoggedIn()) return null;
-  return sessionStorage.getItem(STORAGE.accessToken);
-}
-
-/** PKCE helpers */
+// --------------------
+// PKCE helpers
+// --------------------
 function base64UrlEncode(bytes) {
   const str = btoa(String.fromCharCode(...bytes));
   return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -239,10 +253,17 @@ async function handleCognitoCallbackIfPresent() {
   }
 }
 
-/** Active links UI */
+// --------------------
+// Active links rendering
+// --------------------
 function epochToLocalString(epoch) {
   if (!epoch) return "—";
   return new Date(epoch * 1000).toLocaleString();
+}
+
+function getTokenField(item) {
+  // supports both old + new lambda shapes
+  return (item.link_token || item.token || "").trim();
 }
 
 function groupByFolder(items) {
@@ -265,10 +286,6 @@ function applyFilter(items) {
   const q = (searchInput.value || "").trim().toLowerCase();
   if (!q) return items;
   return items.filter((it) => (it.folder || "").toLowerCase().includes(q));
-}
-
-function clearFoldersUI() {
-  foldersRoot.innerHTML = "";
 }
 
 function renderFolders(items) {
@@ -308,10 +325,12 @@ function renderFolders(items) {
     linksWrap.className = "links";
 
     for (const it of g.links) {
-      const token = it.token;
+      const token = getTokenField(it);
       const linkExp = it.link_exp || 0;
 
-      const shareUrl = `https://gallery.project-practice.com/open?t=${encodeURIComponent(token)}`;
+      if (!token) continue;
+
+      const shareUrl = CONFIG.GALLERY_OPEN_BASE + encodeURIComponent(token);
 
       const row = document.createElement("div");
       row.className = "linkRow";
@@ -348,10 +367,11 @@ function renderFolders(items) {
       btnDisable.className = "danger";
       btnDisable.textContent = "Disable";
       btnDisable.addEventListener("click", async () => {
-        await revokeToken(token, row);
+        await revokeToken(token, row, btnDisable);
       });
 
       actions.appendChild(btnDisable);
+
       row.appendChild(metaDiv);
       row.appendChild(actions);
 
@@ -363,6 +383,9 @@ function renderFolders(items) {
   }
 }
 
+// --------------------
+// API calls
+// --------------------
 async function fetchAdminLinks() {
   const jwt = getAccessTokenOrNull();
   if (!jwt) {
@@ -372,7 +395,7 @@ async function fetchAdminLinks() {
 
   hideLinksStatus();
   showLinksStatus("Loading active links…", "ok");
-  btnRefresh.disabled = true;
+  btnLoadLinks.disabled = true;
 
   try {
     const resp = await fetch(CONFIG.ADMIN_LIST_URL, {
@@ -393,7 +416,8 @@ async function fetchAdminLinks() {
         showLinksStatus("Session expired. Please login again.", "err");
         return;
       }
-      showLinksStatus(`Failed to load links (${resp.status}).`, "err");
+      // show lambda error detail if present
+      showLinksStatus(`Failed to load links (${resp.status}): ${payload.error || payload.detail || "request_failed"}`, "err");
       return;
     }
 
@@ -405,28 +429,28 @@ async function fetchAdminLinks() {
   } catch {
     showLinksStatus("Network/config error while loading active links.", "err");
   } finally {
-    btnRefresh.disabled = !isLoggedIn();
+    btnLoadLinks.disabled = !isLoggedIn();
   }
 }
 
-async function revokeToken(token, rowEl) {
+async function revokeToken(token, rowEl, btnEl) {
   const jwt = getAccessTokenOrNull();
   if (!jwt) {
     await startLogin();
     return;
   }
 
-  const btn = rowEl.querySelector("button");
-  if (btn) btn.disabled = true;
+  if (btnEl) btnEl.disabled = true;
 
   try {
+    // IMPORTANT: send both fields; lambda can read either during your transition
     const resp = await fetch(CONFIG.REVOKE_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${jwt}`,
       },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, link_token: token }),
     });
 
     const text = await resp.text();
@@ -441,33 +465,32 @@ async function revokeToken(token, rowEl) {
         showLinksStatus("Session expired. Please login again.", "err");
         return;
       }
-      showLinksStatus(`Disable failed (${resp.status}): ${payload.error || "request_failed"}`, "err");
-      if (btn) btn.disabled = false;
+      showLinksStatus(`Disable failed (${resp.status}): ${payload.error || payload.detail || "request_failed"}`, "err");
+      if (btnEl) btnEl.disabled = false;
       return;
     }
 
-    lastItems = lastItems.filter((x) => x.token !== token);
+    // remove from current UI
+    lastItems = lastItems.filter((x) => getTokenField(x) !== token);
     renderFolders(lastItems);
     showLinksStatus("Link disabled (revoked).", "ok");
   } catch {
     showLinksStatus("Network/config error while disabling link.", "err");
-    if (btn) btn.disabled = false;
+    if (btnEl) btnEl.disabled = false;
   }
 }
 
-btnRefresh.addEventListener("click", () => fetchAdminLinks());
-searchInput.addEventListener("input", () => renderFolders(lastItems));
-
-
-/** Generate link */
+// --------------------
+// Generate link
+// --------------------
 btnGenerate.addEventListener("click", async () => {
   shareUrl = null;
   setButtonsEnabled(false);
   resultBox.style.display = "none";
   statusBox.style.display = "none";
 
-  const token = getAccessTokenOrNull();
-  if (!token) {
+  const jwt = getAccessTokenOrNull();
+  if (!jwt) {
     await startLogin();
     return;
   }
@@ -479,7 +502,6 @@ btnGenerate.addEventListener("click", async () => {
     showStatus("Folder is required (e.g., client123 or client123/job456).", "err");
     return;
   }
-
   if (Number.isNaN(days) || days < CONFIG.MIN_DAYS || days > CONFIG.MAX_DAYS) {
     showStatus(`Link TTL must be between ${CONFIG.MIN_DAYS} and ${CONFIG.MAX_DAYS} days.`, "err");
     return;
@@ -495,7 +517,7 @@ btnGenerate.addEventListener("click", async () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
+        "Authorization": `Bearer ${jwt}`,
       },
       body: JSON.stringify({ folder: folderPrefix, link_ttl_seconds }),
     });
@@ -512,21 +534,28 @@ btnGenerate.addEventListener("click", async () => {
         showStatus("Session expired. Please login again.", "err");
         return;
       }
-      showStatus(`Error (${resp.status}): ${payload.error || payload.message || "request_failed"}`, "err");
+      showStatus(`Error (${resp.status}): ${payload.error || payload.detail || payload.message || "request_failed"}`, "err");
       return;
     }
 
-    if (!payload.share_url) {
-      showStatus("No share_url returned by API.", "err");
-      return;
+    // accept share_url from lambda. if missing, build it from returned token/link_token
+    if (payload.share_url) {
+      shareUrl = payload.share_url;
+    } else {
+      const t = (payload.link_token || payload.token || "").trim();
+      if (!t) {
+        showStatus("No share_url and no token returned by API.", "err");
+        return;
+      }
+      shareUrl = CONFIG.GALLERY_OPEN_BASE + encodeURIComponent(t);
     }
 
-    shareUrl = payload.share_url;
     showResult(shareUrl);
     showStatus("Share link generated.", "ok");
     setButtonsEnabled(true);
 
-    fetchAdminLinks().catch(() => {});
+    // DO NOT auto-load active links anymore (per your request)
+    // If you want to see it, click "Load active links".
   } catch {
     showStatus("Network or configuration error while calling the signer API.", "err");
   } finally {
@@ -534,9 +563,11 @@ btnGenerate.addEventListener("click", async () => {
   }
 });
 
+// Manual load only
+btnLoadLinks.addEventListener("click", () => fetchAdminLinks());
+searchInput.addEventListener("input", () => renderFolders(lastItems));
 
-handleCognitoCallbackIfPresent()
-  .finally(() => {
-    updateAuthUI();
-    if (isLoggedIn()) fetchAdminLinks().catch(() => {});
-  });
+// On load: handle Cognito callback, but DO NOT auto fetch links
+handleCognitoCallbackIfPresent().finally(() => {
+  updateAuthUI();
+});
