@@ -183,6 +183,10 @@ module "s3_policies" {
 
 module "dynamodb" {
   source = "./DynamoDB"
+  providers = {
+      aws = aws.eu-south-1
+    }
+
 
 }
 

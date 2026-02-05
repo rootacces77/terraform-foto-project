@@ -86,19 +86,6 @@ data "aws_iam_policy_document" "lambda_dynamodb" {
     ]
   }
 
-  # Optional: needed only if you will query the GSI (list links by folder)
-  statement {
-    sid    = "AllowQueryFolderIndex"
-    effect = "Allow"
-
-    actions = [
-      "dynamodb:Query"
-    ]
-
-    resources = [
-      "${var.dynamodb_table_arn}"
-    ]
-  }
 }
 
 resource "aws_iam_policy" "lambda_dynamodb" {
