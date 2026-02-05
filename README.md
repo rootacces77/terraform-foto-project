@@ -1,5 +1,3 @@
-# terraform-foto-project
-
 ![Alt text](diagram/project3-fotox.png)
 
 # Secure Photo Gallery on AWS (CloudFront + S3 + Lambda + DynamoDB + Cognito)
