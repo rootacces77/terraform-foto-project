@@ -64,5 +64,5 @@ data "aws_iam_policy_document" "cyberduck_user_policy" {
 resource "aws_iam_user_policy" "this" {
   name   = "${aws_iam_user.this.name}-s3-${var.gallery_bucket_name}-full"
   user   = aws_iam_user.this.name
-  policy = data.aws_iam_policy_document.bucket_only_full_access.json
+  policy = data.aws_iam_policy_document.cyberduck_user_policy.json
 }
