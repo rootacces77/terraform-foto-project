@@ -94,7 +94,7 @@ data "aws_iam_policy_document" "lambda_dynamodb" {
     ]
 
     resources = [
-      "${var.dynamodb_table_arn}/index/gsi_folder"
+      "${var.dynamodb_table_arn}"
     ]
   }
 }
