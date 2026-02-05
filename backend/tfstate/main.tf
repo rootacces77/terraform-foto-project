@@ -27,38 +27,6 @@ module "tf_state_bucket" {
 }
 
 
-resource "aws_s3_bucket_policy" "tf_state_org" {
-  bucket = module.tf_state_bucket.s3_bucket_id
-
-  policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "AllowOrgUseBucketForTfState"
-        Effect    = "Allow"
-        Principal = "*"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:GetObjectVersion",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          module.tf_state_bucket.s3_bucket_arn,
-          "${module.tf_state_bucket.s3_bucket_arn}/*"
-        ]
-        Condition = {
-          StringEquals = {
-            "aws:PrincipalOrgID" = local.org_id
-          }
-        }
-      }
-    ]
-  })
-}
-
-
 
 
 

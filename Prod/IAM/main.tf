@@ -12,15 +12,51 @@ resource "aws_iam_user" "this" {
 ############################################
 # Policy: Full access ONLY to this bucket
 ############################################
-data "aws_iam_policy_document" "bucket_only_full_access" {
+
+data "aws_iam_policy_document" "cyberduck_user_policy" {
+
+  #
+  # Allow listing all buckets (Cyberduck needs this)
+  #
   statement {
-    sid     = "BucketAndObjectsFullAccess"
-    effect  = "Allow"
+    sid    = "AllowListAllBuckets"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListAllMyBuckets",
+      "s3:GetBucketLocation"
+    ]
+
+    resources = ["*"]
+  }
+
+  #
+  # Full access to the single allowed bucket
+  #
+  statement {
+    sid    = "AllowFullAccessToGalleryBucket"
+    effect = "Allow"
+
     actions = ["s3:*"]
 
     resources = [
       "arn:aws:s3:::${var.gallery_bucket_name}",
-      "arn:aws:s3:::${var.gallery_bucket_name}/*",
+      "arn:aws:s3:::${var.gallery_bucket_name}/*"
+    ]
+  }
+
+  #
+  # Explicitly deny access to ALL other buckets
+  #
+  statement {
+    sid    = "DenyAccessToOtherBuckets"
+    effect = "Deny"
+
+    actions = ["s3:*"]
+
+    not_resources = [
+      "arn:aws:s3:::${var.gallery_bucket_name}",
+      "arn:aws:s3:::${var.gallery_bucket_name}/*"
     ]
   }
 }
