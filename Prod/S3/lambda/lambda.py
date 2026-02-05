@@ -5,6 +5,7 @@ import base64
 import re
 import hmac
 import hashlib
+import struct
 from typing import Any, Dict, Optional, Tuple, List
 from urllib.parse import quote
 
@@ -27,14 +28,20 @@ GALLERY_BUCKET = os.environ["GALLERY_BUCKET"].strip()
 ALLOWED_PREFIX_RAW = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 
 # Cookie TTL bounds (in seconds)
-DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "3600"))   # 1 hour default
-MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "86400"))          # 24 hours max
+DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "86400"))   # 24 hours default
+MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "86400"))           # 24 hours max
 
 # Share-link validity (independent of cookie TTL) (seconds)
 DEFAULT_LINK_TTL_SECONDS = int(os.getenv("DEFAULT_LINK_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 days
 
 # Link signing secret (HMAC). Required for stateless tokens.
-LINK_SIGNING_SECRET = os.environ["LINK_SIGNING_SECRET"].encode("utf-8")
+LINK_SIGNING_SECRET_RAW = os.getenv("LINK_SIGNING_SECRET", "").strip()
+if not LINK_SIGNING_SECRET_RAW:
+    raise RuntimeError("Missing required env var: LINK_SIGNING_SECRET")
+LINK_SIGNING_SECRET = LINK_SIGNING_SECRET_RAW.encode("utf-8")
+
+# Error page path on CloudFront domain (static)
+ERROR_PAGE_PATH = os.getenv("ERROR_PAGE_PATH", "/site/error.html").strip()
 
 # Cookie attributes
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
@@ -61,7 +68,6 @@ ALLOWED_IMAGE_EXT = set(
     if e.strip()
 )
 
-# NEW: ZIP extensions (default ".zip")
 ALLOWED_ZIP_EXT = set(
     e.strip().lower()
     for e in os.getenv("ALLOWED_ZIP_EXT", ".zip").split(",")
@@ -132,41 +138,67 @@ def _sign_policy(policy_str: str) -> Tuple[str, str]:
 
 
 # =============================================================================
-# Helpers: stateless share token (HMAC)
+# Helpers: error redirects (for /open only)
 # =============================================================================
+def _redirect_error(http_code: int, reason: str) -> Dict[str, Any]:
+    location = (
+        f"https://{CLOUDFRONT_DOMAIN}{ERROR_PAGE_PATH}"
+        f"?code={quote(str(http_code), safe='')}"
+        f"&reason={quote(reason, safe='')}"
+    )
+    return {
+        "statusCode": 302,
+        "headers": {"Location": location, "Cache-Control": "no-store", "Pragma": "no-cache"},
+        "body": "",
+    }
+
+
+# =============================================================================
+# Helpers: short stateless share token (binary payload + truncated HMAC)
+# =============================================================================
+_TOKEN_VER = 1
+_HMAC_TRUNC_BYTES = 12  # 12 bytes = 96-bit tag (~16 base64url chars)
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
-
 
 def _b64url_decode(s: str) -> bytes:
     s += "=" * (-len(s) % 4)
     return base64.urlsafe_b64decode(s.encode("utf-8"))
 
-
-def _make_share_token(payload: Dict[str, Any]) -> str:
-    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    sig = hmac.new(LINK_SIGNING_SECRET, body, hashlib.sha256).digest()
-    return f"{_b64url(body)}.{_b64url(sig)}"
-
+def _make_share_token(folder_param: str, cookie_ttl_seconds: int, link_exp: int) -> str:
+    # payload = [ver:1][exp:4][ttl:4][folder:N]
+    folder_bytes = folder_param.encode("utf-8")
+    payload = struct.pack(">BII", _TOKEN_VER, int(link_exp), int(cookie_ttl_seconds)) + folder_bytes
+    mac = hmac.new(LINK_SIGNING_SECRET, payload, hashlib.sha256).digest()[:_HMAC_TRUNC_BYTES]
+    return f"{_b64url(payload)}.{_b64url(mac)}"
 
 def _verify_share_token(token: str) -> Dict[str, Any]:
     try:
         b, s = token.split(".", 1)
-        body = _b64url_decode(b)
-        sig = _b64url_decode(s)
+        payload = _b64url_decode(b)
+        mac = _b64url_decode(s)
     except Exception:
-        raise ValueError("invalid token format")
+        raise ValueError("invalid_token_format")
 
-    expected = hmac.new(LINK_SIGNING_SECRET, body, hashlib.sha256).digest()
-    if not hmac.compare_digest(expected, sig):
-        raise ValueError("invalid token signature")
+    expected = hmac.new(LINK_SIGNING_SECRET, payload, hashlib.sha256).digest()[:_HMAC_TRUNC_BYTES]
+    if not hmac.compare_digest(expected, mac):
+        raise ValueError("invalid_token_signature")
 
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception:
-        raise ValueError("invalid token payload")
+    if len(payload) < 9:
+        raise ValueError("invalid_token_payload")
 
-    return payload
+    ver, link_exp, cookie_ttl_seconds = struct.unpack(">BII", payload[:9])
+    if ver != _TOKEN_VER:
+        raise ValueError("unsupported_token_version")
+
+    folder_param = payload[9:].decode("utf-8", errors="strict")
+
+    return {
+        "folder": folder_param,
+        "cookie_ttl_seconds": int(cookie_ttl_seconds),
+        "link_exp": int(link_exp),
+    }
 
 
 # =============================================================================
@@ -175,21 +207,21 @@ def _verify_share_token(token: str) -> Dict[str, Any]:
 def _normalize_folder(folder: str) -> str:
     s = (folder or "").strip()
     if not s:
-        raise ValueError("folder is required")
+        raise ValueError("folder_required")
 
     s = s.lstrip("/").rstrip("/")
     if not s:
-        raise ValueError("folder is required")
+        raise ValueError("folder_required")
 
     if ".." in s or "//" in s:
-        raise ValueError("invalid folder path")
+        raise ValueError("invalid_folder_path")
 
     # Prevent accidental double-prefix
     if s.startswith(BASE_PREFIX) or s.startswith(BASE_PREFIX.rstrip("/")):
-        raise ValueError(f"Do not include '{BASE_PREFIX}' in folder.")
+        raise ValueError("folder_must_not_include_base_prefix")
 
     if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
-        raise ValueError("folder contains invalid characters")
+        raise ValueError("invalid_folder_characters")
 
     return f"/{s}/"
 
@@ -206,24 +238,6 @@ def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
 
-def _parse_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
-    ttl = None
-    q = event.get("queryStringParameters") or {}
-    if "cookie_retention_seconds" in q:
-        ttl = q.get("cookie_retention_seconds")
-    elif "cookie_retention" in q:
-        ttl = q.get("cookie_retention")
-
-    payload = _parse_json_body(event)
-    if ttl is None:
-        ttl = payload.get("cookie_retention_seconds") or payload.get("cookie_retention")
-
-    ttl_seconds = DEFAULT_TTL_SECONDS if ttl is None else int(ttl)
-    if ttl_seconds < 60:
-        raise ValueError("cookie_retention_seconds must be >= 60")
-    return min(ttl_seconds, MAX_TTL_SECONDS)
-
-
 def _parse_link_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
     link_ttl = None
     q = event.get("queryStringParameters") or {}
@@ -236,7 +250,7 @@ def _parse_link_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
 
     link_ttl_seconds = DEFAULT_LINK_TTL_SECONDS if link_ttl is None else int(link_ttl)
     if link_ttl_seconds < 60:
-        raise ValueError("link_ttl_seconds must be >= 60")
+        raise ValueError("link_ttl_seconds_must_be_ge_60")
     return link_ttl_seconds
 
 
@@ -251,7 +265,7 @@ def _parse_folder_from_admin_request(event: Dict[str, Any]) -> str:
         folder = payload.get("folder") or payload.get("path")
 
     if folder is None:
-        raise ValueError("folder parameter is required")
+        raise ValueError("folder_required")
 
     return _normalize_folder(folder)
 
@@ -328,17 +342,11 @@ def _is_allowed_image_key(key: str) -> bool:
     lk = key.lower()
     return any(lk.endswith(ext) for ext in ALLOWED_IMAGE_EXT)
 
-
 def _is_allowed_zip_key(key: str) -> bool:
     lk = key.lower()
     return any(lk.endswith(ext) for ext in ALLOWED_ZIP_EXT)
 
-
 def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
-    """
-    prefix: e.g. "gallery/client123/job456/"
-    Returns: (image_keys, newest_zip_key_or_none)
-    """
     image_keys: List[str] = []
     zip_best_key: Optional[str] = None
     zip_best_last_modified = None
@@ -370,7 +378,6 @@ def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
 
         token = resp.get("NextContinuationToken")
 
-    # Cap images to MAX_LIST_KEYS
     if len(image_keys) > MAX_LIST_KEYS:
         image_keys = image_keys[:MAX_LIST_KEYS]
 
@@ -381,34 +388,37 @@ def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
 # Lambda handler
 # =============================================================================
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    try:
-        method = _request_method(event)
-        path = _request_path(event)
+    method = _request_method(event)
+    path = _request_path(event)
 
+    # Decide error style:
+    # - /open => redirect to error.html (human-facing)
+    # - /list, /sign => JSON (fetch-facing)
+    wants_redirect = path.endswith(OPEN_PATH)
+
+    try:
         # ---------------------------------------------------------------------
-        # 1) Admin endpoint: POST /sign -> returns share_url
+        # 1) Admin endpoint: POST /sign -> returns share_url (JSON)
         # ---------------------------------------------------------------------
         if method == "POST" and path.endswith(SIGN_PATH):
-            folder = _parse_folder_from_admin_request(event)          # "/client123/job456/"
-            cookie_ttl_seconds = _parse_ttl_seconds_from_admin_request(event)
+            folder = _parse_folder_from_admin_request(event)  # "/client123/job456/"
+
+            # cookies fixed at 24h (86400)
+            cookie_ttl_seconds = 86400
+
+            # link TTL optional
             link_ttl_seconds = _parse_link_ttl_seconds_from_admin_request(event)
 
-            folder_param = folder.lstrip("/")                         # "client123/job456/"
+            folder_param = folder.lstrip("/")  # "client123/job456/"
             now = int(time.time())
             link_exp = now + link_ttl_seconds
 
-            token_payload = {
-                "folder": folder_param,
-                "cookie_ttl_seconds": cookie_ttl_seconds,
-                "link_exp": link_exp,
-            }
-            share_token = _make_share_token(token_payload)
-
-            share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={quote(share_token, safe='')}"
+            share_token = _make_share_token(folder_param, cookie_ttl_seconds, link_exp)
+            share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={share_token}"
             return _response_json(200, {"share_url": share_url})
 
         # ---------------------------------------------------------------------
-        # 2) GET/HEAD /list?folder=... -> list image keys + newest zip key
+        # 2) GET/HEAD /list?folder=... -> list image keys + newest zip key (JSON)
         # ---------------------------------------------------------------------
         if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
             folder = None
@@ -419,7 +429,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 payload = _parse_json_body(event)
                 folder = payload.get("folder") or payload.get("path")
             if folder is None:
-                raise ValueError("folder parameter is required")
+                raise ValueError("folder_required")
 
             folder_norm = _normalize_folder(folder)                   # "/client123/job456/"
             prefix = BASE_PREFIX + folder_norm.lstrip("/")            # "gallery/client123/job456/"
@@ -435,9 +445,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_json(200, out)
 
         # ---------------------------------------------------------------------
-        # 3) Public endpoint: GET/HEAD /open?t=... -> set cookies + redirect
+        # 3) Public endpoint: GET/HEAD /open?t=... -> set cookies + redirect (HUMAN)
         # ---------------------------------------------------------------------
         if method not in ("GET", "HEAD"):
+            # human-friendly for /open, json for others
+            if wants_redirect:
+                return _redirect_error(405, "method_not_allowed")
             return _response_json(405, {"error": "method_not_allowed"})
 
         if not path.endswith(OPEN_PATH):
@@ -451,13 +464,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if tlist:
                 token = tlist[0]
         if not token:
-            raise ValueError("t parameter is required")
+            return _redirect_error(400, "missing_token")
 
-        payload = _verify_share_token(token)
+        try:
+            payload = _verify_share_token(token)
+        except ValueError:
+            return _redirect_error(403, "invalid_link")
 
         folder_param = payload.get("folder")
         if not isinstance(folder_param, str) or not folder_param.strip():
-            raise ValueError("token missing folder")
+            return _redirect_error(400, "bad_request")
 
         cookie_ttl_seconds = int(payload.get("cookie_ttl_seconds", DEFAULT_TTL_SECONDS))
         if cookie_ttl_seconds < 60:
@@ -467,10 +483,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         link_exp = int(payload.get("link_exp", 0))
         now = int(time.time())
         if link_exp and now > link_exp:
-            return _response_json(403, {"error": "link_expired"})
+            return _redirect_error(403, "link_expired")
 
-        folder_norm = _normalize_folder(folder_param)                 # "/client123/job456/"
-        folder_no_slash = folder_norm.lstrip("/")                     # "client123/job456/"
+        # Validate folder and build prefix
+        try:
+            folder_norm = _normalize_folder(folder_param)                 # "/client123/job456/"
+        except ValueError:
+            return _redirect_error(400, "bad_request")
+
+        folder_no_slash = folder_norm.lstrip("/")                         # "client123/job456/"
 
         expires_epoch = now + cookie_ttl_seconds
 
@@ -493,7 +514,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return _response_redirect(location, cookies, max_age)
 
     except ValueError as ve:
+        # for /list or /sign: JSON
+        if wants_redirect:
+            return _redirect_error(400, "bad_request")
         return _response_json(400, {"error": str(ve)})
+
     except Exception as e:
         print("UNHANDLED_EXCEPTION:", repr(e))
+        if wants_redirect:
+            return _redirect_error(500, "internal_error")
         return _response_json(500, {"error": "internal_error", "detail": str(e)})

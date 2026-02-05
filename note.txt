@@ -4,3 +4,5 @@ Create OIDC/Admin
 Create Cyberduck Access Keys
 
 
+Error page go home
+Admin app.js

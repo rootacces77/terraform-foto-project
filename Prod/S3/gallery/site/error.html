@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Error</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: #000000;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 18px;
+      box-sizing: border-box;
+    }
+    .box {
+      max-width: 900px;
+      width: 100%;
+      text-align: center;
+    }
+    .big {
+      font-size: clamp(54px, 8vw, 110px);
+      font-weight: 900;
+      letter-spacing: 1px;
+      line-height: 1.0;
+      margin: 0;
+    }
+    .sub {
+      margin-top: 16px;
+      font-size: clamp(16px, 2.2vw, 22px);
+      font-weight: 600;
+    }
+    .reason {
+      margin-top: 10px;
+      font-size: 16px;
+      opacity: 0.75;
+    }
+    .btns {
+      margin-top: 26px;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    a.btn {
+      display: inline-block;
+      padding: 12px 16px;
+      border: 2px solid #000;
+      border-radius: 14px;
+      text-decoration: none;
+      color: #000;
+      font-weight: 700;
+    }
+    a.btn:hover {
+      background: #000;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="box">
+      <h1 class="big" id="headline">ERROR</h1>
+      <div class="sub" id="message">Something went wrong.</div>
+      <div class="reason" id="details"></div>
+
+      <div class="btns">
+        <a class="btn" href="https://www.project-practice.com/" id="home">Go Home</a>
+        <a class="btn" href="javascript:location.reload()">Reload</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const p = new URLSearchParams(location.search);
+    const codeRaw = (p.get("code") || "").trim();
+    const reason = (p.get("reason") || "").trim();
+
+    function normalizeCode(x) {
+      if (/^\d{3}$/.test(x)) return x;
+      // If someone passes non-numeric, map common reasons
+      const map = {
+        link_expired: "403",
+        cookies_expired: "403",
+        invalid_link: "403",
+        not_found: "404",
+        missing_folder: "400",
+        missing_token: "400",
+        bad_request: "400",
+        internal_error: "500",
+        list_failed: "500",
+        client_error: "500",
+      };
+      return map[x] || "403";
+    }
+
+    const code = normalizeCode(codeRaw || reason);
+
+    const headline = document.getElementById("headline");
+    headline.textContent = `ERROR ${code}`;
+
+    const msg = document.getElementById("message");
+    const details = document.getElementById("details");
+
+    const messages = {
+      "400": "Bad request.",
+      "401": "Unauthorized.",
+      "403": "Access denied or expired.",
+      "404": "Not found.",
+      "405": "Method not allowed.",
+      "500": "Server error.",
+    };
+
+    msg.textContent = messages[code] || "Something went wrong.";
+
+    if (reason) {
+      details.textContent = `Reason: ${reason}`;
+    } else {
+      details.textContent = "";
+    }
+  </script>
+</body>
+</html>

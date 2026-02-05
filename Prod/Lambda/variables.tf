@@ -25,12 +25,18 @@ variable "cloudfront_private_key_secret_arn" {
 
 variable "default_ttl_seconds" { 
     type = number 
-    default = 604800
+    default = 43200
 }  # 7 days
 variable "max_ttl_seconds" {
      type = number
-     default = 2592000 
-}     # 14 days
+     default = 43200 
+}     # 30 days
+
+variable "default_link_ttl_seconds" {
+    type = number
+    default = 86400
+  
+}
 variable "redirect_to_index" { 
     type = string
     default = "true" 
@@ -87,4 +93,11 @@ variable "gallery_index_path" {
 variable "allowed_folder_prefix"{ 
     type = string 
     default = "gallery"
+}
+
+variable "link_signing_secret" {
+    type = string
+    description = "Secret used to generate link"
+    default = "o4kO_qaahpuVrF1ef9gpOGFcGzNYLRpyQY740xMBeAM"
+  
 }

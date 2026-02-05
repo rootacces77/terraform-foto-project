@@ -3,6 +3,10 @@
  * - Login/Logout via Cognito Hosted UI (Authorization Code + PKCE)
  * - Calls POST /sign with Authorization: Bearer <access_token>
  *
+ * This version:
+ * - "days" input controls LINK TTL (how long the share link is usable)
+ * - Cookies are fixed in Lambda (24h) and are NOT sent from the admin page
+ *
  * You must set these:
  * - COGNITO_DOMAIN: "https://<prefix>.auth.<region>.amazoncognito.com"
  * - COGNITO_CLIENT_ID: "<app client id>"
@@ -18,9 +22,9 @@ const CONFIG = {
   COGNITO_LOGOUT_URI: "https://admin.project-practice.com/",
 
   SIGNER_API_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/sign",
-  
 
-  MAX_DAYS: 14,
+  // These now apply to LINK TTL (in days)
+  MAX_DAYS: 30,
   MIN_DAYS: 1,
 };
 
@@ -245,7 +249,7 @@ function getAccessTokenOrNull() {
 }
 
 /** -------------------------
- * Generate
+ * Generate share link (LINK TTL controlled here; cookies fixed in Lambda)
  * ------------------------*/
 btnGenerate.addEventListener("click", async () => {
   shareUrl = null;
@@ -255,7 +259,6 @@ btnGenerate.addEventListener("click", async () => {
 
   const token = getAccessTokenOrNull();
   if (!token) {
-    // Not logged in → start login then come back
     await startLogin();
     return;
   }
@@ -269,11 +272,11 @@ btnGenerate.addEventListener("click", async () => {
   }
 
   if (Number.isNaN(days) || days < CONFIG.MIN_DAYS || days > CONFIG.MAX_DAYS) {
-    showStatus(`Cookie retention must be between ${CONFIG.MIN_DAYS} and ${CONFIG.MAX_DAYS} days.`, "err");
+    showStatus(`Link TTL must be between ${CONFIG.MIN_DAYS} and ${CONFIG.MAX_DAYS} days.`, "err");
     return;
   }
 
-  const cookie_retention_seconds = days * 24 * 60 * 60;
+  const link_ttl_seconds = days * 24 * 60 * 60;
 
   btnGenerate.disabled = true;
   showStatus("Generating link…", "ok");
@@ -287,7 +290,7 @@ btnGenerate.addEventListener("click", async () => {
       },
       body: JSON.stringify({
         folder: folderPrefix,
-        cookie_retention_seconds,
+        link_ttl_seconds,
       }),
     });
 
@@ -296,7 +299,6 @@ btnGenerate.addEventListener("click", async () => {
     try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
 
     if (!resp.ok) {
-      // If token expired or invalid, kick back to login
       if (resp.status === 401 || resp.status === 403) {
         sessionStorage.removeItem(STORAGE.accessToken);
         sessionStorage.removeItem(STORAGE.expiresAt);
@@ -317,7 +319,6 @@ btnGenerate.addEventListener("click", async () => {
     showResult(shareUrl);
     showStatus("Share link generated.", "ok");
     setButtonsEnabled(true);
-
   } catch (e) {
     showStatus("Network or configuration error while calling the signer API.", "err");
   } finally {

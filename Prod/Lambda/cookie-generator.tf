@@ -30,6 +30,7 @@ resource "aws_lambda_function" "cookie_generator" {
       ALLOWED_FOLDER_PREFIX      = var.allowed_folder_prefix    # e.g. "/clients/"
       DEFAULT_TTL_SECONDS     = tostring(var.default_ttl_seconds) # e.g. 604800
       MAX_TTL_SECONDS         = tostring(var.max_ttl_seconds)     # e.g. 1209600
+      DEFAULT_LINK_TTL_SECONDS = var.default_link_ttl_seconds
       REDIRECT_TO_INDEX       = var.redirect_to_index        # "true" or "false"
 
       COOKIE_SECURE           = var.cookie_secure            # "true"
@@ -45,6 +46,8 @@ resource "aws_lambda_function" "cookie_generator" {
       GALLERY_BUCKET         = var.gallery_bucket_name
       GALLERY_INDEX_PATH     = var.gallery_index_path
       LIST_PATH              = "/list"
+
+      LINK_SIGNING_SECRET    = var.link_signing_secret
        
     }
   }

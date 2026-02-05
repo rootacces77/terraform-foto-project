@@ -1,286 +1,426 @@
-/* =============================
-   Theme (Light default + saved toggle)
-============================= */
-const THEME_KEY = "gallery_theme";
+(function () {
+  function qs(id) { return document.getElementById(id); }
 
-function setTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem(THEME_KEY, theme);
-
-  const btn = document.getElementById("themeToggle");
-  if (btn) btn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
-}
-
-function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
-  setTheme(saved === "dark" ? "dark" : "light");
-}
-
-/* =============================
-   Helpers
-============================= */
-function getFolderFromQuery() {
-  const url = new URL(window.location.href);
-  return url.searchParams.get("folder") || "";
-}
-
-function normalizeFolder(folder) {
-  let f = (folder || "").trim();
-  f = f.replace(/^\/+/, "");
-  if (!f) return null;
-  if (!f.endsWith("/")) f += "/";
-  return f; // e.g. "client123/job456/"
-}
-
-function isProbablyImage(key) {
-  return /\.(png|jpe?g|gif|webp|avif)$/i.test(key || "");
-}
-
-function basename(key) {
-  const parts = (key || "").split("/");
-  return parts[parts.length - 1] || key;
-}
-
-function safeZipName(folder) {
-  return (folder || "gallery/")
-    .replace(/[^A-Za-z0-9._-]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-/**
- * /list returns full keys like:
- *   "gallery/client123/job456/photo 1.jpg"
- * or zip:
- *   "gallery/client123/job456/some-file.zip"
- *
- * CloudFront expects path:
- *   "/gallery/client123/job456/photo%201.jpg"
- *
- * So we MUST use the key directly and encode per path segment.
- */
-function objUrlFromKey(key) {
-  const clean = (key || "").replace(/^\/+/, ""); // no leading slash
-  const encoded = clean.split("/").map(encodeURIComponent).join("/");
-  return `/${encoded}`;
-}
-
-async function loadList(folder) {
-  const resp = await fetch(`/list?folder=${encodeURIComponent(folder)}`, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`list failed (${resp.status})`);
-  return resp.json();
-}
-
-function triggerDownloadBlob(blob, filename) {
-  const a = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-/* =============================
-   Lightbox (slider)
-============================= */
-let IMAGE_KEYS = [];
-let CUR = 0;
-let CURRENT_FOLDER = null;
-
-// NEW: zip key returned by /list
-let ZIP_KEY = null;
-
-function openModalAt(idx) {
-  const modal = document.getElementById("modal");
-  const img = document.getElementById("modalImg");
-  const title = document.getElementById("modalTitle");
-  const dl = document.getElementById("modalDownload");
-
-  CUR = Math.max(0, Math.min(idx, IMAGE_KEYS.length - 1));
-  const key = IMAGE_KEYS[CUR];
-
-  const objUrl = objUrlFromKey(key);
-
-  img.src = objUrl;
-  title.textContent = basename(key);
-
-  dl.href = objUrl;
-  dl.setAttribute("download", basename(key));
-
-  modal.classList.add("open");
-}
-
-function closeModal() {
-  const modal = document.getElementById("modal");
-  const img = document.getElementById("modalImg");
-  img.src = "";
-  modal.classList.remove("open");
-}
-
-function nextImg() {
-  if (!IMAGE_KEYS.length) return;
-  openModalAt((CUR + 1) % IMAGE_KEYS.length);
-}
-
-function prevImg() {
-  if (!IMAGE_KEYS.length) return;
-  openModalAt((CUR - 1 + IMAGE_KEYS.length) % IMAGE_KEYS.length);
-}
-
-/* Swipe support */
-let TOUCH_X = null;
-function onTouchStart(e) {
-  if (!e.touches || e.touches.length !== 1) return;
-  TOUCH_X = e.touches[0].clientX;
-}
-function onTouchEnd(e) {
-  if (TOUCH_X == null) return;
-  const x2 = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX : null;
-  if (x2 == null) { TOUCH_X = null; return; }
-  const dx = x2 - TOUCH_X;
-  TOUCH_X = null;
-
-  if (Math.abs(dx) < 45) return;
-  if (dx < 0) nextImg();
-  else prevImg();
-}
-
-/* =============================
-   Render grid (Instagram-like)
-============================= */
-function renderGrid(keys, folder) {
-  CURRENT_FOLDER = folder;
-
-  const grid = document.getElementById("grid");
-  grid.innerHTML = "";
-
-  IMAGE_KEYS = (keys || []).filter(isProbablyImage);
-
-  // Status shows number of images
-  document.getElementById("status").textContent = `${IMAGE_KEYS.length} image(s)`;
-
-  // Always show Download button (requested)
-  const dlFolderBtn = document.getElementById("dlFolder");
-  dlFolderBtn.style.display = "inline-block";
-  dlFolderBtn.disabled = false;
-
-  IMAGE_KEYS.forEach((key, idx) => {
-    const objUrl = objUrlFromKey(key);
-
-    const tile = document.createElement("div");
-    tile.className = "tile";
-
-    const img = document.createElement("img");
-    img.src = objUrl;
-    img.loading = "lazy";
-    img.alt = basename(key);
-    img.addEventListener("click", () => openModalAt(idx));
-
-    tile.appendChild(img);
-    grid.appendChild(tile);
-  });
-}
-
-/* =============================
-   Download folder as ZIP (server-side ZIP stored in S3)
-   - Does NOT build zip in browser
-   - Uses ZIP_KEY returned by /list
-============================= */
-async function downloadFolderZip(folder) {
-  const status = document.getElementById("status");
-  const btn = document.getElementById("dlFolder");
-
-  if (!ZIP_KEY) {
-    status.textContent = "ZIP is not available yet for this folder.";
-    return;
+  function goError(code, reason) {
+    const u = `/site/error.html?code=${encodeURIComponent(String(code))}&reason=${encodeURIComponent(reason || "")}`;
+    window.location.replace(u);
   }
 
-  btn.disabled = true;
-
-  try {
-    const zipUrl = objUrlFromKey(ZIP_KEY);
-
-    const resp = await fetch(zipUrl, { cache: "no-store" });
-    if (!resp.ok) throw new Error(`ZIP download failed (${resp.status})`);
-
-    const blob = await resp.blob();
-
-    const filename = basename(ZIP_KEY) || `${safeZipName(folder)}.zip`;
-    triggerDownloadBlob(blob, filename);
-
-    status.textContent = `Downloaded ${filename}`;
-  } catch (e) {
-    status.textContent = `ZIP download failed: ${e.message}`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/* =============================
-   Main
-============================= */
-(async function main() {
-  initTheme();
-
-  // Theme toggle wiring
-  document.getElementById("themeToggle").addEventListener("click", () => {
-    const cur = document.documentElement.getAttribute("data-theme") || "light";
-    setTheme(cur === "dark" ? "light" : "dark");
-  });
-
-  const status = document.getElementById("status");
-  const folder = normalizeFolder(getFolderFromQuery());
-
-  if (!folder) {
-    status.textContent = "Missing ?folder=. Example: ?folder=client123/job456/";
-    return;
+  function getFolderFromQuery() {
+    const url = new URL(window.location.href);
+    return url.searchParams.get("folder") || "";
   }
 
-  // Lightbox wiring
-  document.getElementById("modalClose").addEventListener("click", closeModal);
-  document.getElementById("modalImg").addEventListener("click", closeModal);
-  document.getElementById("nextBtn").addEventListener("click", nextImg);
-  document.getElementById("prevBtn").addEventListener("click", prevImg);
+  function normalizeFolder(folder) {
+    let f = (folder || "").trim();
+    f = f.replace(/^\/+/, "");   // no leading slash
+    f = f.replace(/\/+$/, "");   // no trailing slash
+    if (!f) return null;
+    return f + "/"; // must end with /
+  }
 
-  const stage = document.getElementById("modalStage");
-  stage.addEventListener("touchstart", onTouchStart, { passive: true });
-  stage.addEventListener("touchend", onTouchEnd, { passive: true });
+  function encodeKeyForUrl(key) {
+    // Encode each path segment but keep slashes
+    return (key || "").split("/").map(encodeURIComponent).join("/");
+  }
 
-  window.addEventListener("keydown", (e) => {
-    const modalOpen = document.getElementById("modal").classList.contains("open");
-    if (!modalOpen) return;
+  function basename(key) {
+    const parts = (key || "").split("/");
+    return parts[parts.length - 1] || key;
+  }
 
-    if (e.key === "Escape") closeModal();
-    if (e.key === "ArrowRight") nextImg();
-    if (e.key === "ArrowLeft") prevImg();
-  });
+  function safeZipName(folder) {
+    return (folder || "gallery/")
+      .replace(/\/+$/, "")
+      .replace(/[^A-Za-z0-9._-]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "") + ".zip";
+  }
 
-  // Folder ZIP button (always visible)
-  document.getElementById("dlFolder").addEventListener("click", () => downloadFolderZip(folder));
+  function setStatus(msg) {
+    const st = qs("status");
+    if (st) st.textContent = msg;
+  }
 
-  try {
-    const data = await loadList(folder);
+  async function loadList(folder) {
+    const resp = await fetch(`/list?folder=${encodeURIComponent(folder)}`, { cache: "no-store" });
 
-    // Expecting:
-    // { folder: "...", files: [...], zip: "gallery/.../something.zip" }
-    // OR fallback: { files: [...] } / array
-    ZIP_KEY = Array.isArray(data) ? null : (data.zip || null);
-
-    // If list response is an array, treat as files list
-    const keys = Array.isArray(data) ? data : (data.files || data.keys || []);
-    renderGrid(keys, folder);
-
-    // Optional hint
-    if (!ZIP_KEY) {
-      status.textContent = `${IMAGE_KEYS.length} image(s) • ZIP not available yet`;
+    if (resp.status === 401 || resp.status === 403) {
+      goError(403, "cookies_expired");
+      return null;
     }
-  } catch (e) {
-    status.textContent = `Could not load list: ${e.message}`;
-    // Still keep button visible (renderGrid not called here)
-    const dlFolderBtn = document.getElementById("dlFolder");
-    if (dlFolderBtn) dlFolderBtn.style.display = "inline-block";
-  }
-})();
+    if (resp.status === 404) {
+      goError(404, "not_found");
+      return null;
+    }
+    if (!resp.ok) {
+      goError(500, "list_failed");
+      return null;
+    }
 
+    return resp.json();
+  }
+
+  // ----------------------------
+  // Lightbox (Modal) logic
+  // ----------------------------
+  const state = {
+    files: [],
+    currentIndex: -1,
+    folder: ""
+  };
+
+  const modal = () => qs("modal");
+  const modalImg = () => qs("modalImg");
+  const modalTitle = () => qs("modalTitle");
+  const modalDownload = () => qs("modalDownload");
+  const modalClose = () => qs("modalClose");
+  const prevBtn = () => qs("prevBtn");
+  const nextBtn = () => qs("nextBtn");
+  const modalStage = () => qs("modalStage");
+
+  function isModalOpen() {
+    const m = modal();
+    return !!(m && m.classList.contains("open"));
+  }
+
+  function setModalOpen(open) {
+    const m = modal();
+    if (!m) return;
+
+    if (open) {
+      m.classList.add("open");
+      // prevent background scrolling
+      document.body.style.overflow = "hidden";
+    } else {
+      m.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+  }
+
+  function clampIndex(i) {
+    const n = state.files.length;
+    if (n <= 0) return -1;
+    // wrap around
+    return (i % n + n) % n;
+  }
+
+  function showIndex(i) {
+    const n = state.files.length;
+    if (n <= 0) return;
+
+    const idx = clampIndex(i);
+    state.currentIndex = idx;
+
+    const key = state.files[idx];
+    const url = `/${encodeKeyForUrl(key)}`;
+
+    const imgEl = modalImg();
+    const titleEl = modalTitle();
+    const dlEl = modalDownload();
+
+    if (titleEl) titleEl.textContent = basename(key);
+    if (dlEl) {
+      dlEl.href = url;
+      dlEl.setAttribute("download", basename(key));
+    }
+
+    if (imgEl) {
+      // If cookies expire later, images start failing -> redirect
+      imgEl.onerror = () => goError(403, "cookies_expired");
+
+      // Set src last to avoid flashing old image
+      imgEl.removeAttribute("src");
+      imgEl.src = url;
+    }
+  }
+
+  function openModalAt(i) {
+    if (!state.files || state.files.length === 0) return;
+    setModalOpen(true);
+    showIndex(i);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+  }
+
+  function next() {
+    if (!isModalOpen()) return;
+    showIndex(state.currentIndex + 1);
+  }
+
+  function prev() {
+    if (!isModalOpen()) return;
+    showIndex(state.currentIndex - 1);
+  }
+
+  function setupModalHandlers() {
+    const m = modal();
+    if (!m) return;
+
+    // Buttons
+    const c = modalClose();
+    if (c) c.addEventListener("click", closeModal);
+
+    const p = prevBtn();
+    if (p) p.addEventListener("click", (e) => { e.preventDefault(); prev(); });
+
+    const n = nextBtn();
+    if (n) n.addEventListener("click", (e) => { e.preventDefault(); next(); });
+
+    // Click backdrop to close (but not when clicking inside panel/img/buttons)
+    m.addEventListener("click", (e) => {
+      if (e.target === m) closeModal();
+    });
+
+    // Click image to close (nice UX)
+    const imgEl = modalImg();
+    if (imgEl) imgEl.addEventListener("click", closeModal);
+
+    // Keyboard
+    window.addEventListener("keydown", (e) => {
+      if (!isModalOpen()) return;
+
+      if (e.key === "Escape") closeModal();
+      else if (e.key === "ArrowRight") next();
+      else if (e.key === "ArrowLeft") prev();
+    });
+
+    // Basic swipe on touch devices
+    const stage = modalStage();
+    if (stage) {
+      let startX = 0;
+      let startY = 0;
+      let active = false;
+
+      stage.addEventListener("touchstart", (e) => {
+        if (!isModalOpen()) return;
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        active = true;
+        startX = t.clientX;
+        startY = t.clientY;
+      }, { passive: true });
+
+      stage.addEventListener("touchend", (e) => {
+        if (!active || !isModalOpen()) return;
+        active = false;
+
+        const t = e.changedTouches && e.changedTouches[0];
+        if (!t) return;
+
+        const dx = t.clientX - startX;
+        const dy = t.clientY - startY;
+
+        // horizontal swipe threshold
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+          if (dx < 0) next();
+          else prev();
+        }
+      }, { passive: true });
+    }
+  }
+
+  // ----------------------------
+  // Grid render + click to open
+  // ----------------------------
+  function renderImages(files) {
+    const grid = qs("grid");
+    if (!grid) return;
+
+    grid.innerHTML = "";
+
+    if (!files || files.length === 0) {
+      setStatus("No images found.");
+      return;
+    }
+
+    setStatus(`Loaded ${files.length} images`);
+
+    files.forEach((key, idx) => {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.referrerPolicy = "no-referrer";
+      img.src = `/${encodeKeyForUrl(key)}`;
+
+      // If cookies expire later, images start failing -> redirect to error page
+      img.onerror = () => goError(403, "cookies_expired");
+
+      // OPEN LIGHTBOX ON CLICK
+      img.addEventListener("click", (e) => {
+        e.preventDefault();
+        openModalAt(idx);
+      });
+
+      // Also allow keyboard "Enter" if user tabs to tile
+      tile.tabIndex = 0;
+      tile.setAttribute("role", "button");
+      tile.setAttribute("aria-label", `Open ${basename(key)}`);
+      tile.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openModalAt(idx);
+        }
+      });
+
+      tile.appendChild(img);
+      grid.appendChild(tile);
+    });
+  }
+
+  // ----------------------------
+  // Download ZIP logic (unchanged)
+  // ----------------------------
+  async function clientSideZipDownload(files, folder) {
+    // Requires JSZip loaded in HTML
+    if (!window.JSZip) {
+      goError(500, "jszip_missing");
+      return;
+    }
+    if (!files || files.length === 0) {
+      setStatus("Nothing to download.");
+      return;
+    }
+
+    const zip = new JSZip();
+    const zipFilename = safeZipName(folder);
+
+    // Small concurrency limiter to avoid blasting the browser/network
+    const concurrency = 5;
+    let i = 0;
+    let done = 0;
+
+    setStatus(`Preparing ZIP… 0/${files.length}`);
+
+    async function worker() {
+      while (true) {
+        const idx = i++;
+        if (idx >= files.length) return;
+
+        const key = files[idx];
+        const url = `/${encodeKeyForUrl(key)}`;
+
+        const r = await fetch(url, { cache: "no-store" });
+        if (r.status === 401 || r.status === 403) {
+          goError(403, "cookies_expired");
+          return;
+        }
+        if (!r.ok) {
+          done++;
+          setStatus(`Preparing ZIP… ${done}/${files.length} (skipped 1)`);
+          continue;
+        }
+
+        const blob = await r.blob();
+        zip.file(basename(key), blob);
+
+        done++;
+        setStatus(`Preparing ZIP… ${done}/${files.length}`);
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(concurrency, files.length) }, () => worker());
+    await Promise.all(workers);
+
+    setStatus("Building ZIP…");
+
+    const outBlob = await zip.generateAsync({ type: "blob" });
+
+    const a = document.createElement("a");
+    const objUrl = URL.createObjectURL(outBlob);
+    a.href = objUrl;
+    a.download = zipFilename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(objUrl), 30_000);
+
+    setStatus(`Downloaded ${zipFilename}`);
+  }
+
+  function setupDownloadButton(options) {
+    const btn = qs("dlFolder");
+    if (!btn) return;
+
+    const zipKey = options.zipKey;
+    const files = options.files || [];
+    const folder = options.folder || "";
+
+    // NEVER hide the button anymore
+    btn.style.display = "inline-block";
+
+    // If nothing to download, keep visible but disabled
+    if (!files || files.length === 0) {
+      btn.disabled = true;
+      btn.title = "No images to download";
+      btn.onclick = null;
+      return;
+    }
+
+    // If server ZIP exists, prefer it
+    if (zipKey) {
+      btn.disabled = false;
+      btn.title = "Download server-generated ZIP";
+
+      const url = `/${encodeKeyForUrl(zipKey)}`;
+      btn.onclick = () => window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    // Fallback: client-side ZIP using JSZip
+    btn.disabled = false;
+    btn.title = "ZIP is not pre-generated; downloading via browser ZIP (may be slower)";
+    btn.onclick = () => clientSideZipDownload(files, folder).catch(() => goError(500, "zip_failed"));
+  }
+
+  function setupThemeToggle() {
+    const btn = qs("themeToggle");
+    if (!btn) return;
+
+    btn.addEventListener("click", () => {
+      const html = document.documentElement;
+      const cur = html.getAttribute("data-theme") || "light";
+      const next = cur === "dark" ? "light" : "dark";
+      html.setAttribute("data-theme", next);
+      btn.textContent = next === "dark" ? "Light mode" : "Dark mode";
+    });
+  }
+
+  async function main() {
+    setupThemeToggle();
+    setupModalHandlers();
+
+    const rawFolder = getFolderFromQuery();
+    const folder = normalizeFolder(rawFolder);
+
+    if (!folder) {
+      goError(400, "missing_folder");
+      return;
+    }
+
+    state.folder = folder;
+
+    setStatus("Loading…");
+
+    const data = await loadList(folder);
+    if (!data) return;
+
+    const files = Array.isArray(data.files) ? data.files : [];
+    const zipKey = data.zip || data.zipKey || data.zip_key || null;
+
+    state.files = files;
+
+    setupDownloadButton({ zipKey, files, folder });
+    renderImages(files);
+  }
+
+  window.addEventListener("load", () => {
+    main().catch(() => goError(500, "client_error"));
+  });
+})();
