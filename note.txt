@@ -2,7 +2,5 @@ Enable AWS Organization
 Register Domain
 Create OIDC/Admin
 Create Cyberduck Access Keys
+Create Budget
 
-
-Error page go home
-Admin app.js
