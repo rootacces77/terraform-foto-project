@@ -40,6 +40,7 @@
       margin-top: 10px;
       font-size: 16px;
       opacity: 0.75;
+      word-break: break-word;
     }
     .btns {
       margin-top: 26px;
@@ -48,7 +49,7 @@
       justify-content: center;
       flex-wrap: wrap;
     }
-    a.btn {
+    a.btn, button.btn {
       display: inline-block;
       padding: 12px 16px;
       border: 2px solid #000;
@@ -56,8 +57,11 @@
       text-decoration: none;
       color: #000;
       font-weight: 700;
+      background: transparent;
+      cursor: pointer;
+      font: inherit;
     }
-    a.btn:hover {
+    a.btn:hover, button.btn:hover {
       background: #000;
       color: #fff;
     }
@@ -71,32 +75,56 @@
       <div class="reason" id="details"></div>
 
       <div class="btns">
-        <a class="btn" href="https://www.project-practice.com/" id="home">Go Home</a>
-        <a class="btn" href="javascript:location.reload()">Reload</a>
+        <a class="btn" href="https://www.project-practice.com/" id="home" rel="noopener">Go Home</a>
+        <button class="btn" id="reloadBtn" type="button">Reload</button>
       </div>
     </div>
   </div>
 
   <script>
+    // Force absolute home (prevents any relative-path weirdness)
+    const HOME_URL = "https://www.project-practice.com/";
+
     const p = new URLSearchParams(location.search);
     const codeRaw = (p.get("code") || "").trim();
     const reason = (p.get("reason") || "").trim();
 
+    const home = document.getElementById("home");
+    home.href = HOME_URL;
+
+    document.getElementById("reloadBtn").addEventListener("click", () => {
+      location.reload();
+    });
+
     function normalizeCode(x) {
       if (/^\d{3}$/.test(x)) return x;
-      // If someone passes non-numeric, map common reasons
+
       const map = {
-        link_expired: "403",
-        cookies_expired: "403",
+        // token/link flow
+        missing_token: "403",
         invalid_link: "403",
-        not_found: "404",
+        token_invalid: "403",
+        token_expired: "403",
+        token_revoked: "403",
+        link_expired: "403",
+
+        // cookie / cf signed cookies
+        cookies_expired: "403",
+
+        // folder / path validation
         missing_folder: "400",
-        missing_token: "400",
         bad_request: "400",
+
+        // common handlers
+        not_found: "404",
+        method_not_allowed: "405",
+
+        // server
         internal_error: "500",
         list_failed: "500",
         client_error: "500",
       };
+
       return map[x] || "403";
     }
 
@@ -108,7 +136,7 @@
     const msg = document.getElementById("message");
     const details = document.getElementById("details");
 
-    const messages = {
+    const messagesByCode = {
       "400": "Bad request.",
       "401": "Unauthorized.",
       "403": "Access denied or expired.",
@@ -117,13 +145,31 @@
       "500": "Server error.",
     };
 
-    msg.textContent = messages[code] || "Something went wrong.";
+    // Optional nicer messages by specific reason (overrides generic)
+    const messagesByReason = {
+      missing_token: "This link is missing a token.",
+      invalid_link: "This share link is invalid.",
+      token_invalid: "This share link is invalid.",
+      token_expired: "This share link has expired.",
+      token_revoked: "This share link has been disabled by the admin.",
+      link_expired: "This share link has expired.",
+      cookies_expired: "Your access cookies expired. Please open the share link again.",
+      missing_folder: "Folder is missing from the URL.",
+      bad_request: "The request is not valid.",
+      not_found: "The requested page was not found.",
+      method_not_allowed: "This action is not allowed.",
+      internal_error: "An internal error occurred.",
+      list_failed: "Failed to load gallery listing.",
+      client_error: "A client-side error occurred.",
+    };
 
-    if (reason) {
-      details.textContent = `Reason: ${reason}`;
+    if (reason && messagesByReason[reason]) {
+      msg.textContent = messagesByReason[reason];
     } else {
-      details.textContent = "";
+      msg.textContent = messagesByCode[code] || "Something went wrong.";
     }
+
+    details.textContent = reason ? `Reason: ${reason}` : "";
   </script>
 </body>
 </html>

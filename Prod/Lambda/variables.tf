@@ -95,9 +95,33 @@ variable "allowed_folder_prefix"{
     default = "gallery"
 }
 
-variable "link_signing_secret" {
+variable "list_cache_ttl_seconds" {
+    type = number
+    description = "Number in seconds that /list will cache in lambda "
+    default = 300
+  
+}
+
+variable "include_token_in_redirect" {
     type = string
-    description = "Secret used to generate link"
-    default = "o4kO_qaahpuVrF1ef9gpOGFcGzNYLRpyQY740xMBeAM"
+    description = "Can gallery page call /list with token"
+    default = "true"
+  
+}
+
+variable "token_ttl_buffer_seconds" {
+    type = number
+    description = "After link expires how long to keep insert in DynamoDB in seconds"
+    default = 3600
+  
+}
+
+
+variable "dynamodb_table_arn" {
+  type = string
+}
+
+variable "dynamodb_table_name" {
+    type = string
   
 }

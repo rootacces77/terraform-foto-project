@@ -24,7 +24,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs" {
 }
 
 
-# Read Secrets
+# SecretManager
 resource "aws_iam_role_policy" "lambda_read_cf_private_key_secret" {
   name = "lambda-read-cf-private-key-secret"
   role = aws_iam_role.lambda_exec.id
@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "lambda_read_cf_private_key_secret" {
   })
 }
 
-#List buckets
+# S3
 data "aws_iam_policy_document" "lambda_list_bucket" {
   statement {
     sid     = "AllowListGalleryBucket"
@@ -63,4 +63,48 @@ resource "aws_iam_policy" "lambda_list_bucket" {
 resource "aws_iam_role_policy_attachment" "lambda_list_bucket" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = aws_iam_policy.lambda_list_bucket.arn
+}
+
+# DynamoDB
+data "aws_iam_policy_document" "lambda_dynamodb" {
+  statement {
+    sid    = "AllowShareLinksTableReadWrite"
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Scan"
+    ]
+
+    resources = [
+      var.dynamodb_table_arn
+    ]
+  }
+
+  # Optional: needed only if you will query the GSI (list links by folder)
+  statement {
+    sid    = "AllowQueryFolderIndex"
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:Query"
+    ]
+
+    resources = [
+      "${var.dynamodb_table_arn}/index/gsi_folder"
+    ]
+  }
+}
+
+resource "aws_iam_policy" "lambda_dynamodb" {
+  name   = "lambda-dynamodb-share-links"
+  policy = data.aws_iam_policy_document.lambda_dynamodb.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_dynamodb" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = aws_iam_policy.lambda_dynamodb.arn
 }

@@ -47,7 +47,11 @@ resource "aws_lambda_function" "cookie_generator" {
       GALLERY_INDEX_PATH     = var.gallery_index_path
       LIST_PATH              = "/list"
 
-      LINK_SIGNING_SECRET    = var.link_signing_secret
+      DDB_TABLE_NAME              = var.dynamodb_table_name
+      LIST_CACHE_TTL_SECONDS      = var.list_cache_ttl_seconds
+      TOKEN_TTL_BUFFER_SECONDS    = var.token_ttl_buffer_seconds
+      INCLUDE_TOKEN_IN_REDIRECT   = var.include_token_in_redirect
+
        
     }
   }

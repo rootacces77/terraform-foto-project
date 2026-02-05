@@ -68,6 +68,32 @@ resource "aws_apigatewayv2_route" "sign" {
 }
 
 ############################################
+# Route: POST /revoke  (JWT protected)
+############################################
+resource "aws_apigatewayv2_route" "revoke" {
+  api_id    = aws_apigatewayv2_api.signer.id
+  route_key = "POST /revoke"
+  target    = "integrations/${aws_apigatewayv2_integration.signer_lambda.id}"
+
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_jwt.id
+
+}
+
+############################################
+# Route: POST /admin/links  (JWT protected)
+############################################
+resource "aws_apigatewayv2_route" "admin_links" {
+  api_id    = aws_apigatewayv2_api.signer.id
+  route_key = "POST /admin/links"
+  target    = "integrations/${aws_apigatewayv2_integration.signer_lambda.id}"
+
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_jwt.id
+
+}
+
+############################################
 # Route: GET /open 
 ############################################
 resource "aws_apigatewayv2_route" "open" {

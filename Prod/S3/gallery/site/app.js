@@ -11,6 +11,12 @@
     return url.searchParams.get("folder") || "";
   }
 
+  // NEW: token comes from /open redirect (?t=...)
+  function getTokenFromQuery() {
+    const url = new URL(window.location.href);
+    return url.searchParams.get("t") || "";
+  }
+
   function normalizeFolder(folder) {
     let f = (folder || "").trim();
     f = f.replace(/^\/+/, "");   // no leading slash
@@ -42,11 +48,14 @@
     if (st) st.textContent = msg;
   }
 
-  async function loadList(folder) {
-    const resp = await fetch(`/list?folder=${encodeURIComponent(folder)}`, { cache: "no-store" });
+  // NEW: /list now requires token (t=...)
+  async function loadList(folder, token) {
+    const url = `/list?folder=${encodeURIComponent(folder)}&t=${encodeURIComponent(token)}`;
+    const resp = await fetch(url, { cache: "no-store" });
 
+    // Your new Lambda returns 403 for missing/invalid/expired token
     if (resp.status === 401 || resp.status === 403) {
-      goError(403, "cookies_expired");
+      goError(403, "link_expired");
       return null;
     }
     if (resp.status === 404) {
@@ -67,7 +76,8 @@
   const state = {
     files: [],
     currentIndex: -1,
-    folder: ""
+    folder: "",
+    token: "" // NEW
   };
 
   const modal = () => qs("modal");
@@ -90,7 +100,6 @@
 
     if (open) {
       m.classList.add("open");
-      // prevent background scrolling
       document.body.style.overflow = "hidden";
     } else {
       m.classList.remove("open");
@@ -101,7 +110,6 @@
   function clampIndex(i) {
     const n = state.files.length;
     if (n <= 0) return -1;
-    // wrap around
     return (i % n + n) % n;
   }
 
@@ -126,10 +134,7 @@
     }
 
     if (imgEl) {
-      // If cookies expire later, images start failing -> redirect
       imgEl.onerror = () => goError(403, "cookies_expired");
-
-      // Set src last to avoid flashing old image
       imgEl.removeAttribute("src");
       imgEl.src = url;
     }
@@ -159,7 +164,6 @@
     const m = modal();
     if (!m) return;
 
-    // Buttons
     const c = modalClose();
     if (c) c.addEventListener("click", closeModal);
 
@@ -169,25 +173,20 @@
     const n = nextBtn();
     if (n) n.addEventListener("click", (e) => { e.preventDefault(); next(); });
 
-    // Click backdrop to close (but not when clicking inside panel/img/buttons)
     m.addEventListener("click", (e) => {
       if (e.target === m) closeModal();
     });
 
-    // Click image to close (nice UX)
     const imgEl = modalImg();
     if (imgEl) imgEl.addEventListener("click", closeModal);
 
-    // Keyboard
     window.addEventListener("keydown", (e) => {
       if (!isModalOpen()) return;
-
       if (e.key === "Escape") closeModal();
       else if (e.key === "ArrowRight") next();
       else if (e.key === "ArrowLeft") prev();
     });
 
-    // Basic swipe on touch devices
     const stage = modalStage();
     if (stage) {
       let startX = 0;
@@ -213,7 +212,6 @@
         const dx = t.clientX - startX;
         const dy = t.clientY - startY;
 
-        // horizontal swipe threshold
         if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
           if (dx < 0) next();
           else prev();
@@ -248,16 +246,13 @@
       img.referrerPolicy = "no-referrer";
       img.src = `/${encodeKeyForUrl(key)}`;
 
-      // If cookies expire later, images start failing -> redirect to error page
       img.onerror = () => goError(403, "cookies_expired");
 
-      // OPEN LIGHTBOX ON CLICK
       img.addEventListener("click", (e) => {
         e.preventDefault();
         openModalAt(idx);
       });
 
-      // Also allow keyboard "Enter" if user tabs to tile
       tile.tabIndex = 0;
       tile.setAttribute("role", "button");
       tile.setAttribute("aria-label", `Open ${basename(key)}`);
@@ -277,7 +272,6 @@
   // Download ZIP logic (unchanged)
   // ----------------------------
   async function clientSideZipDownload(files, folder) {
-    // Requires JSZip loaded in HTML
     if (!window.JSZip) {
       goError(500, "jszip_missing");
       return;
@@ -290,7 +284,6 @@
     const zip = new JSZip();
     const zipFilename = safeZipName(folder);
 
-    // Small concurrency limiter to avoid blasting the browser/network
     const concurrency = 5;
     let i = 0;
     let done = 0;
@@ -352,10 +345,8 @@
     const files = options.files || [];
     const folder = options.folder || "";
 
-    // NEVER hide the button anymore
     btn.style.display = "inline-block";
 
-    // If nothing to download, keep visible but disabled
     if (!files || files.length === 0) {
       btn.disabled = true;
       btn.title = "No images to download";
@@ -363,17 +354,14 @@
       return;
     }
 
-    // If server ZIP exists, prefer it
     if (zipKey) {
       btn.disabled = false;
       btn.title = "Download server-generated ZIP";
-
       const url = `/${encodeKeyForUrl(zipKey)}`;
       btn.onclick = () => window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
 
-    // Fallback: client-side ZIP using JSZip
     btn.disabled = false;
     btn.title = "ZIP is not pre-generated; downloading via browser ZIP (may be slower)";
     btn.onclick = () => clientSideZipDownload(files, folder).catch(() => goError(500, "zip_failed"));
@@ -399,16 +387,25 @@
     const rawFolder = getFolderFromQuery();
     const folder = normalizeFolder(rawFolder);
 
+    // NEW: require token for /list
+    const token = (getTokenFromQuery() || "").trim();
+
     if (!folder) {
       goError(400, "missing_folder");
       return;
     }
+    if (!token) {
+      // If user lands directly on index.html without coming through /open
+      goError(403, "missing_token");
+      return;
+    }
 
     state.folder = folder;
+    state.token = token;
 
     setStatus("Loading…");
 
-    const data = await loadList(folder);
+    const data = await loadList(folder, token);
     if (!data) return;
 
     const files = Array.isArray(data.files) ? data.files : [];
