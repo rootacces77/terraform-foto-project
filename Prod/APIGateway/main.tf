@@ -13,7 +13,7 @@ resource "aws_apigatewayv2_api" "signer" {
     ]
 
     # Your admin JS calls POST /sign, and the browser will preflight OPTIONS
-    allow_methods = ["POST", "OPTIONS"]
+    allow_methods = ["POST", "OPTIONS", "GET"]
 
     # Because you send JWT in Authorization and JSON payload
     allow_headers = ["authorization", "content-type"]
@@ -81,11 +81,11 @@ resource "aws_apigatewayv2_route" "revoke" {
 }
 
 ############################################
-# Route: POST /admin/links  (JWT protected)
+# Route: GET /admin/links  (JWT protected)
 ############################################
 resource "aws_apigatewayv2_route" "admin_links" {
   api_id    = aws_apigatewayv2_api.signer.id
-  route_key = "POST /admin/links"
+  route_key = "GET /admin/links"
   target    = "integrations/${aws_apigatewayv2_integration.signer_lambda.id}"
 
   authorization_type = "JWT"
@@ -161,3 +161,20 @@ resource "aws_lambda_permission" "allow_apigw_invoke_list" {
   source_arn = "${aws_apigatewayv2_api.signer.execution_arn}/${aws_apigatewayv2_stage.prod.name}/GET/list"
 }
 
+resource "aws_lambda_permission" "allow_apigw_invoke_revoke" {
+  statement_id  = "AllowExecutionFromAPIGatewayV2Orevoke"
+  action        = "lambda:InvokeFunction"
+  function_name = var.lambda_cookie_generator_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_apigatewayv2_api.signer.execution_arn}/${aws_apigatewayv2_stage.prod.name}/POST/revoke"
+}
+
+resource "aws_lambda_permission" "allow_apigw_invoke_links_list" {
+  statement_id  = "AllowExecutionFromAPIGatewayV2OlinksList"
+  action        = "lambda:InvokeFunction"
+  function_name = var.lambda_cookie_generator_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_apigatewayv2_api.signer.execution_arn}/${aws_apigatewayv2_stage.prod.name}/GET/admin/links"
+}
