@@ -184,6 +184,20 @@ module "s3_policies" {
 }
 
 
+module "s3_events" {
+  source = "./S3-Events"
+  providers = {
+      aws = aws.eu-south-1
+    }
+
+    gallery_bucket_name = module.s3.gallery_bucket_name
+    lambda_thumb_arn    = module.lambda.lambda_thumb_arn
+  
+}
+
+
+
+
 module "dynamodb" {
   source = "./DynamoDB"
   providers = {

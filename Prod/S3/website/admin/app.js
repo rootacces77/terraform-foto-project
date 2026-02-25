@@ -1,12 +1,12 @@
 const CONFIG = {
   COGNITO_DOMAIN: "https://foto.auth.eu-south-1.amazoncognito.com",
-  COGNITO_CLIENT_ID: "9vj56bf1ovaub0kf82ed4kq1h",
+  COGNITO_CLIENT_ID: "3nhb09h0frpqfrps6dsn251i7v",
   COGNITO_REDIRECT_URI: "https://admin.project-practice.com/",
   COGNITO_LOGOUT_URI: "https://admin.project-practice.com/",
 
-  SIGNER_API_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/sign",
-  REVOKE_API_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/revoke",
-  ADMIN_LIST_URL: "https://3qg8vce4tg.execute-api.eu-south-1.amazonaws.com/prod/admin/links",
+  SIGNER_API_URL: "https://cay91jt8o0.execute-api.eu-south-1.amazonaws.com/prod/sign",
+  REVOKE_API_URL: "https://cay91jt8o0.execute-api.eu-south-1.amazonaws.com/prod/revoke",
+  ADMIN_LIST_URL: "https://cay91jt8o0.execute-api.eu-south-1.amazonaws.com/prod/admin/links",
 
   // Must match your gallery domain
   GALLERY_OPEN_BASE: "https://gallery.project-practice.com/open?t=",

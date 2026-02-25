@@ -12,3 +12,8 @@ output "lambda_cookie_generator_arn" {
     value = aws_lambda_function.cookie_generator.arn
   
 }
+
+output "lambda_thumb_arn" {
+    value = aws_lambda_function.thumb_generator.arn
+  
+}
