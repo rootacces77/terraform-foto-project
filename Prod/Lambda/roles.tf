@@ -128,7 +128,7 @@ data "aws_iam_policy_document" "lambda_thumb_s3" {
       variable = "s3:prefix"
       values   = [
         "${var.gallery_prefix}*",
-        "${lvar.thumbs_prefix}*",
+        "${var.thumbs_prefix}*",
       ]
     }
   }
