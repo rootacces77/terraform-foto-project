@@ -114,55 +114,56 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs2" {
 }
 
 # S3
+resource "aws_iam_role_policy" "lambda_thumb_s3_inline" {
+  name = "lambda-thumb-s3-inline"
+  role = aws_iam_role.lambda_thumb.id
 
-data "aws_iam_policy_document" "lambda_thumb_s3" {
-  # ListBucket (needed for list operations; not strictly for GetObject/PutObject)
-  statement {
-    sid     = "AllowListBucketForRelevantPrefixes"
-    effect  = "Allow"
-    actions = ["s3:ListBucket"]
-    resources = ["arn:aws:s3:::${var.gallery_bucket_name}"]
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # Read originals (only gallery/)
+      {
+        Sid    = "ReadGallery"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.gallery_bucket_name}/gallery/*"
+        ]
+      },
 
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = [
-        "${var.gallery_prefix}*",
-        "${var.thumbs_prefix}*",
-      ]
-    }
-  }
+      # Write + Head thumbs (thumbs/)
+      # This covers:
+      # - thumbs/<album>/thumb-of-*.jpg
+      # - thumbs/<album>/   (your folder marker object ending with '/')
+      {
+        Sid    = "WriteThumbs"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:HeadObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.gallery_bucket_name}/thumbs/*"
+        ]
+      },
 
-  # Read originals (gallery/)
-  statement {
-    sid     = "AllowReadOriginalObjects"
-    effect  = "Allow"
-    actions = ["s3:GetObject", "s3:GetObjectVersion"]
-    resources = [
-      "arn:aws:s3:::${var.gallery_bucket_name}/${var.gallery_prefix}*"
+      # Optional: ListBucket (only if you ever list; safe to keep)
+      {
+        Sid    = "ListBucketLimited"
+        Effect = "Allow"
+        Action = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${var.gallery_bucket_name}"
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["gallery/*", "thumbs/*"]
+          }
+        }
+      }
     ]
-  }
-
-  # Head + Write thumbs (thumbs/)
-  statement {
-    sid     = "AllowHeadAndWriteThumbObjects"
-    effect  = "Allow"
-    actions = [
-      "s3:HeadObject",
-      "s3:PutObject",
-      "s3:AbortMultipartUpload",
-      "s3:ListMultipartUploadParts"
-    ]
-    resources = [
-      "arn:aws:s3:::${var.gallery_bucket_name}/${var.thumbs_prefix}*"
-    ]
-  }
-}
-
-
-resource "aws_iam_policy" "lambda_thumb_s3" {
-  name   = "lambda-list-gallery-bucket123"
-  policy = data.aws_iam_policy_document.lambda_thumb_s3.json
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_thumb_s3" {
