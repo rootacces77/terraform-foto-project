@@ -108,7 +108,7 @@ resource "aws_iam_role" "lambda_thumb" {
 }
 
 # CloudWatch Logs permissions
-resource "aws_iam_role_policy_attachment" "lambda_basic_logs" {
+resource "aws_iam_role_policy_attachment" "lambda_basic_logs2" {
   role       = aws_iam_role.lambda_thumb.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
