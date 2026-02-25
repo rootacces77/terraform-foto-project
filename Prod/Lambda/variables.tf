@@ -141,3 +141,9 @@ variable "thumbs_prefix" {
     default = "thumbs/"
   
 }
+
+variable "gallery_prefix" {
+    type = string
+    default = "gallery/"
+  
+}

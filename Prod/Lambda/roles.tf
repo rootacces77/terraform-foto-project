@@ -114,49 +114,50 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_logs2" {
 }
 
 # S3
-data "aws_iam_policy_document" "lambda_thumb_s3" {
 
-  # ListBucket is required if your code lists objects (or uses head/list operations).
-  # Restrict listing to only relevant prefixes.
+data "aws_iam_policy_document" "lambda_thumb_s3" {
+  # ListBucket (needed for list operations; not strictly for GetObject/PutObject)
   statement {
-    sid     = "AllowListBucketForOriginalsAndThumbs"
+    sid     = "AllowListBucketForRelevantPrefixes"
     effect  = "Allow"
     actions = ["s3:ListBucket"]
-    resources = [
-      "arn:aws:s3:::${var.gallery_bucket_name}"
-    ]
+    resources = ["arn:aws:s3:::${var.gallery_bucket_name}"]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = [
+        "${var.gallery_prefix}*",
+        "${lvar.thumbs_prefix}*",
+      ]
+    }
   }
 
-  # Read originals
+  # Read originals (gallery/)
   statement {
     sid     = "AllowReadOriginalObjects"
     effect  = "Allow"
-    actions = [
-      "s3:GetObject",
-      "s3:GetObjectVersion"
-    ]
+    actions = ["s3:GetObject", "s3:GetObjectVersion"]
     resources = [
-      "arn:aws:s3:::${var.gallery_bucket_name}/*"
+      "arn:aws:s3:::${var.gallery_bucket_name}/${var.gallery_prefix}*"
     ]
   }
 
-  # Write thumbnails
+  # Head + Write thumbs (thumbs/)
   statement {
-    sid     = "AllowWriteThumbObjects"
+    sid     = "AllowHeadAndWriteThumbObjects"
     effect  = "Allow"
     actions = [
+      "s3:HeadObject",
       "s3:PutObject",
       "s3:AbortMultipartUpload",
       "s3:ListMultipartUploadParts"
-      # Add only if your bucket policy/ownership requires it:
-      # "s3:PutObjectAcl"
     ]
     resources = [
       "arn:aws:s3:::${var.gallery_bucket_name}/${var.thumbs_prefix}*"
     ]
   }
 }
-
 
 
 resource "aws_iam_policy" "lambda_thumb_s3" {
