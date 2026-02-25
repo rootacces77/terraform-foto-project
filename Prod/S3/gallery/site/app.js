@@ -81,99 +81,6 @@
     return resp.json();
   }
 
-  // -------------------------
-  // THUMB URL MAPPING
-  // Originals: gallery/<album>/file.ext
-  // Thumbs:    thumbs/<album>/thumb-of-file.jpg (or .png if alpha)
-  // -------------------------
-  const SOURCE_PREFIX = "gallery/";
-  const THUMBS_PREFIX = "thumbs/";
-  const THUMB_PREFIX = "thumb-of-";
-
-  function stripExt(name) {
-    return (name || "").replace(/\.[^.]+$/, "");
-  }
-
-  function toThumbKeyWithExt(originalKey, outExtWithDot) {
-    if (!originalKey || !originalKey.startsWith(SOURCE_PREFIX)) return null;
-
-    const rel = originalKey.slice(SOURCE_PREFIX.length); // "<album>/file.ext"
-    const parts = rel.split("/").filter(Boolean);
-    const base = parts.pop();
-    const dir = parts.join("/"); // "<album>" or "<album>/sub"
-    if (!base) return null;
-
-    const baseNoExt = stripExt(base);
-    const thumbBase = `${THUMB_PREFIX}${baseNoExt}${outExtWithDot}`;
-
-    return dir
-      ? `${THUMBS_PREFIX}${dir}/${thumbBase}`
-      : `${THUMBS_PREFIX}${thumbBase}`;
-  }
-
-  function thumbUrlCandidates(originalKey) {
-    // return array of candidate THUMB URLs (already prefixed with "/")
-    // - videos: always jpg placeholder
-    // - images: try jpg first, then png (because thumb generator may output png for alpha)
-    if (isVideoKey(originalKey)) {
-      const k = toThumbKeyWithExt(originalKey, ".jpg");
-      return k ? [`/${encodeKeyForUrl(k)}`] : [];
-    }
-
-    if (!isImageKey(originalKey)) return [];
-
-    const out = [];
-    const jpg = toThumbKeyWithExt(originalKey, ".jpg");
-    if (jpg) out.push(`/${encodeKeyForUrl(jpg)}`);
-
-    const png = toThumbKeyWithExt(originalKey, ".png");
-    if (png) out.push(`/${encodeKeyForUrl(png)}`);
-
-    return out;
-  }
-
-  function originalUrl(key) {
-    return `/${encodeKeyForUrl(key)}`;
-  }
-
-  // Set <img> src by trying candidates in order; optionally fallback to original.
-  function setImgWithThumbFallback(imgEl, candidates, finalFallbackUrlOrNull) {
-    let i = 0;
-    let usingFinalFallback = false;
-
-    function tryNext() {
-      if (i < candidates.length) {
-        imgEl.src = candidates[i++];
-        return;
-      }
-      if (finalFallbackUrlOrNull && !usingFinalFallback) {
-        usingFinalFallback = true;
-        imgEl.src = finalFallbackUrlOrNull;
-        return;
-      }
-      // out of options: leave broken
-    }
-
-    imgEl.onerror = () => {
-      // stop infinite loops
-      imgEl.onerror = null;
-      tryNext();
-      // restore handler if there are still more options to try
-      if ((i < candidates.length) || (finalFallbackUrlOrNull && !usingFinalFallback)) {
-        imgEl.onerror = () => {
-          imgEl.onerror = null;
-          tryNext();
-          if ((i < candidates.length) || (finalFallbackUrlOrNull && !usingFinalFallback)) {
-            // reattach for further attempts
-            imgEl.onerror = arguments.callee;
-          }
-        };
-      }
-    };
-
-    tryNext();
-  }
-
   // ---------- state ----------
   const state = {
     files: [],
@@ -313,6 +220,74 @@
     state.visualOrder = items.map(x => x.idx);
   }
 
+  // =========================
+  // THUMB mapping helpers
+  // Originals: gallery/<album>/file.ext
+  // Thumbs:    thumbs/<album>/thumb-of-file.jpg|png
+  // =========================
+  const SOURCE_PREFIX = "gallery/";
+  const THUMBS_PREFIX = "thumbs/";
+  const THUMB_PREFIX = "thumb-of-";
+
+  function stripExt(name) {
+    return (name || "").replace(/\.[^.]+$/, "");
+  }
+
+  function toThumbKeyWithExt(originalKey, outExtWithDot) {
+    if (!originalKey || !originalKey.startsWith(SOURCE_PREFIX)) return null;
+
+    const rel = originalKey.slice(SOURCE_PREFIX.length); // "<album>/file.ext"
+    const parts = rel.split("/").filter(Boolean);
+    const base = parts.pop();
+    const dir = parts.join("/");
+    if (!base) return null;
+
+    const baseNoExt = stripExt(base);
+    const thumbBase = `${THUMB_PREFIX}${baseNoExt}${outExtWithDot}`;
+
+    return dir
+      ? `${THUMBS_PREFIX}${dir}/${thumbBase}`
+      : `${THUMBS_PREFIX}${thumbBase}`;
+  }
+
+  function thumbUrlCandidates(originalKey) {
+    if (isVideoKey(originalKey)) {
+      const k = toThumbKeyWithExt(originalKey, ".jpg");
+      return k ? [`/${encodeKeyForUrl(k)}`] : [];
+    }
+
+    if (!isImageKey(originalKey)) return [];
+
+    const out = [];
+    const jpg = toThumbKeyWithExt(originalKey, ".jpg");
+    if (jpg) out.push(`/${encodeKeyForUrl(jpg)}`);
+
+    const png = toThumbKeyWithExt(originalKey, ".png");
+    if (png) out.push(`/${encodeKeyForUrl(png)}`);
+
+    return out;
+  }
+
+  function originalUrl(key) {
+    return `/${encodeKeyForUrl(key)}`;
+  }
+
+  function setSrcFallback(el, urls, onAllFail) {
+    let i = 0;
+    const tried = new Set();
+
+    function next() {
+      while (i < urls.length && tried.has(urls[i])) i++;
+      if (i >= urls.length) { if (onAllFail) onAllFail(); return; }
+      const u = urls[i++];
+      tried.add(u);
+      el.src = u;
+    }
+
+    el.onerror = () => next();
+    next();
+  }
+
   function openByVisualPos(pos) {
     if (!state.visualOrder.length) return;
     const n = state.visualOrder.length;
@@ -340,7 +315,7 @@
       dlEl.onclick = null;
     }
 
-    // Use thumb as blurred background (faster than downloading original just for bg)
+    // Use thumb as blurred background (faster)
     if (stage) stage.style.setProperty("--stage-bg", `url("${thumbBg}")`);
 
     const reqId = ++state.modalReqId;
@@ -464,7 +439,6 @@
 
     setStatus(`Loaded ${onlyMedia.length} items`);
 
-    // NOTE: keep the original indexes from `files` so visualOrder works correctly
     files.forEach((key, idx) => {
       if (!isImageKey(key) && !isVideoKey(key)) return;
 
@@ -475,7 +449,9 @@
       const origUrl = originalUrl(key);
       const thumbCandidates = thumbUrlCandidates(key);
 
-      // Grid uses <img> for both images and videos (video uses placeholder thumb)
+      // Grid always uses IMG:
+      // - images: thumbs -> fallback to original
+      // - videos: thumb placeholder only (no fallback to video)
       const img = document.createElement("img");
       img.loading = "lazy";
       img.decoding = "async";
@@ -484,24 +460,15 @@
       img.style.display = "block";
       img.style.cursor = "zoom-in";
 
-      if (isVideoKey(key)) {
-        // video: thumbs only (no fallback to origUrl because origUrl is a video)
-        setImgWithThumbFallback(img, thumbCandidates, null);
+      const urls = isVideoKey(key) ? thumbCandidates : [...thumbCandidates, origUrl];
 
-        img.onerror = () => {
-          markTileBroken(tile, "Ne mogu učitati video thumbnail. Dodirni za osvježenje.");
-          requestAnimationFrame(() => resizeMasonryItem(tile));
-        };
-      } else {
-        // image: thumbs first, fallback to original if thumb missing
-        setImgWithThumbFallback(img, thumbCandidates, origUrl);
-
-        img.onerror = () => {
-          // If even original failed, treat as access issue
-          markTileBroken(tile, "Ne mogu učitati. Dodirni za osvježenje.");
-          requestAnimationFrame(() => resizeMasonryItem(tile));
-        };
-      }
+      setSrcFallback(img, urls, () => {
+        markTileBroken(tile, isVideoKey(key)
+          ? "Ne mogu učitati video thumbnail. Dodirni za osvježenje."
+          : "Ne mogu učitati. Dodirni za osvježenje."
+        );
+        requestAnimationFrame(() => resizeMasonryItem(tile));
+      });
 
       img.onload = () => {
         requestAnimationFrame(() => {
@@ -518,7 +485,6 @@
 
       tile.appendChild(img);
 
-      // Video badge (play icon)
       if (isVideoKey(key)) {
         const badge = document.createElement("div");
         badge.textContent = "▶";
@@ -641,10 +607,7 @@
     btn.onclick = () => clientSideZipDownload(files, folder).catch(() => goError(500, "zip_failed"));
   }
 
-  // -------------------------
-  // Probe signed-cookie readiness before rendering tiles.
-  // We probe ORIGINAL media path (gallery/...) because 403 there is a clear sign cookies aren't valid.
-  // -------------------------
+  // Probe ORIGINAL media access
   async function probeMediaAccess(files) {
     const first = (files || []).find(k => isImageKey(k) || isVideoKey(k));
     if (!first) return true;

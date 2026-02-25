@@ -1,5 +1,5 @@
 ############################################
-# IAM Role for Lambda
+# IAM Role for Lambda COOKIE-GENERATOR
 ############################################
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
@@ -97,3 +97,7 @@ resource "aws_iam_role_policy_attachment" "lambda_dynamodb" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = aws_iam_policy.lambda_dynamodb.arn
 }
+
+############################################
+# IAM Role for Lambda THUMB-GENERATOR
+############################################

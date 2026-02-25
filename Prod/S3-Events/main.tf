@@ -3,7 +3,7 @@
 # Gallery Bucket EVENT
 ############################################
 resource "aws_s3_bucket_notification" "thumb_event_media" {
-  bucket = module.gallery-bucket.s3_bucket_id
+  bucket = var.gallery_bucket_name
 
   # Images
   lambda_function { 
