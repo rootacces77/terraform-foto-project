@@ -75,6 +75,7 @@ module "lambda" {
     cloudfront_domain = local.gallery_domain
 
     gallery_bucket_name = module.s3.gallery_bucket_name
+    gallery_bucket_arn  = module.s3.gallery_bucket_arn
 
     dynamodb_table_arn = module.dynamodb.dynamodb_table_arn
     dynamodb_table_name = module.dynamodb.dynamodb_table_name
@@ -191,5 +192,6 @@ module "dynamodb" {
 
 
 }
+
 
 
