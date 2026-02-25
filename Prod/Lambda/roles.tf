@@ -160,7 +160,7 @@ data "aws_iam_policy_document" "lambda_thumb_s3" {
 
 
 resource "aws_iam_policy" "lambda_thumb_s3" {
-  name   = "lambda-list-gallery-bucket"
+  name   = "lambda-list-gallery-bucket123"
   policy = data.aws_iam_policy_document.lambda_thumb_s3.json
 }
 
