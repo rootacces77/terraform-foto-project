@@ -4,7 +4,7 @@
 
 resource "aws_lambda_function" "thumb_generator" {
   function_name = "thumb-generator"
-  role          = aws_iam_role.lambda_exec.arn
+  role          = aws_iam_role.lambda_thumb.arn
 
   runtime = "python3.12"
   handler = "lambda-thumb.lambda_handler" 
