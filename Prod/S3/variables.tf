@@ -44,3 +44,5 @@ variable "gallery_policy_prefix" {
     default = "gallery/"
   
 }
+
+

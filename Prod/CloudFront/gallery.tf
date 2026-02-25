@@ -119,6 +119,27 @@ resource "aws_cloudfront_distribution" "gallery" {
     compress                   = true
   }
 
+
+# PRIVATE: thumbs (signed cookies required)
+  ordered_cache_behavior {
+    path_pattern           = "/thumbs/*"
+    target_origin_id       = "s3-gallery-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+
+    # keep it private (same as /gallery/*)
+    trusted_key_groups = [aws_cloudfront_key_group.gallery_signer.id]
+
+  # thumbs can usually be cached longer (your thumbs Lambda sets 1y Cache-Control)
+  # If you want CF to respect origin Cache-Control, ensure your cache policy does that
+    cache_policy_id            = aws_cloudfront_cache_policy.ttl_30_days.id  # OR ttl_1_year if you prefer
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+}
+
   viewer_certificate {
     acm_certificate_arn            = var.acm_certificate_arn
     ssl_support_method             = "sni-only"

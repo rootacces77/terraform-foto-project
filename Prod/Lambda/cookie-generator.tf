@@ -1,6 +1,6 @@
 
 ############################################
-# LambdaA Function
+# Cookie Generator Function
 ############################################
 
 resource "aws_lambda_function" "cookie_generator" {
@@ -12,7 +12,7 @@ resource "aws_lambda_function" "cookie_generator" {
 
   # Code from S3 (must be a ZIP)
   s3_bucket         = var.lambda_bucket_name
-  s3_key            = var.lambda_zip_path
+  s3_key            = var.lambda_cookie_zip_path
  # s3_object_version = var.lambda_artifact_version
 
   layers = [
@@ -22,11 +22,13 @@ resource "aws_lambda_function" "cookie_generator" {
   environment {
     variables = {
        # Required
+      
       CLOUDFRONT_DOMAIN                 = var.cloudfront_domain                 # e.g. "photos.example.com"
       CLOUDFRONT_KEY_PAIR_ID            = var.cloudfront_key_pair_id            # e.g. "K1234567890ABCDE"
       CLOUDFRONT_PRIVATE_KEY_SECRET_ARN = var.cloudfront_private_key_secret_arn # Secrets Manager ARN
 
       # Recommended defaults (optional)
+      THUMBS_PREFIX = var.thumbs_prefix
       ALLOWED_FOLDER_PREFIX      = var.allowed_folder_prefix    # e.g. "/clients/"
       DEFAULT_TTL_SECONDS     = tostring(var.default_ttl_seconds) # e.g. 604800
       MAX_TTL_SECONDS         = tostring(var.max_ttl_seconds)     # e.g. 1209600

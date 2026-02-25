@@ -69,7 +69,8 @@ module "lambda" {
     cloudfront_private_key_secret_arn = module.secretmanager.lambda_private_key_secret_arn
     cloudfront_key_pair_id = module.cloudfront.cloudfront_key_pair_id
 
-    lambda_zip_path = local.lambda_zip_path
+    lambda_cookie_zip_path = local.lambda_zip_path
+    lambda_thumb_zip_path  = local.lambda_thumb_path
 
     cloudfront_domain = local.gallery_domain
 
@@ -79,6 +80,7 @@ module "lambda" {
     dynamodb_table_name = module.dynamodb.dynamodb_table_name
 
   
+
 
   
 }

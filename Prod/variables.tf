@@ -10,6 +10,7 @@ locals {
 
 
      lambda_zip_path = "lambda.zip"
+     lambda_thumb_path = "lambda-thumb.zip"
 
      gallery_retention_days = 30
 }

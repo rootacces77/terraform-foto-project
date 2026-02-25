@@ -5,12 +5,16 @@ variable "lambda_bucket_name" {
   
 }
 
-variable "lambda_zip_path" {
+variable "lambda_cookie_zip_path" {
     type = string
-    description = "LambdaA path to zip file"
+    description = "Lambda cookie-generator path to zip file"
   
 }
-
+variable "lambda_thumb_zip_path" {
+    type = string
+    description = "Lambda thumb generator path to zip file"
+  
+}
 
 variable "cloudfront_domain" { 
     type = string
@@ -83,6 +87,12 @@ variable "gallery_bucket_name" {
   
 }
 
+variable "gallery_bucket_arn" {
+    type = string
+    description = "Gallery Bucket ARN"
+  
+}
+
 variable "gallery_index_path" {
     type = string
     description = "Path to index.html"
@@ -123,5 +133,11 @@ variable "dynamodb_table_arn" {
 
 variable "dynamodb_table_name" {
     type = string
+  
+}
+
+variable "thumbs_prefix" {
+    type = string
+    default = "thumbs/"
   
 }

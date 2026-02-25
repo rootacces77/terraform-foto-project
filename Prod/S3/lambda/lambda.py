@@ -27,6 +27,9 @@ ALLOWED_PREFIX_RAW = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 if not ALLOWED_PREFIX_RAW:
     raise RuntimeError("ALLOWED_FOLDER_PREFIX must not be empty")
 
+# NEW: thumbs root prefix (must end with "/")
+THUMBS_PREFIX = os.getenv("THUMBS_PREFIX", "thumbs/").strip().strip("/") + "/"  # e.g. "thumbs/"
+
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "86400"))
 MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "86400"))
 
@@ -97,6 +100,7 @@ def _request_method(event: Dict[str, Any]) -> str:
         return m.upper()
     return "GET"
 
+
 def _request_path(event: Dict[str, Any]) -> str:
     p = event.get("rawPath")
     if p:
@@ -113,6 +117,7 @@ def _request_path(event: Dict[str, Any]) -> str:
 def _cloudfront_url_safe_b64(data: bytes) -> str:
     s = base64.b64encode(data).decode("utf-8")
     return s.replace("+", "-").replace("=", "_").replace("/", "~")
+
 
 def _load_private_key() -> Any:
     global _private_key_obj
@@ -132,16 +137,30 @@ def _load_private_key() -> Any:
     _private_key_obj = key
     return key
 
-def _build_custom_policy(resource_url_pattern: str, expires_epoch: int) -> str:
+
+# NEW: policy includes BOTH gallery + thumbs
+def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
+    """
+    folder is normalized like "client/job/".
+    Allows access to:
+      - /gallery/<folder>* (BASE_PREFIX)
+      - /thumbs/<folder>*  (THUMBS_PREFIX)
+    """
+    resources = [
+        f"https://{CLOUDFRONT_DOMAIN}/{BASE_PREFIX}{folder}*",
+        f"https://{CLOUDFRONT_DOMAIN}/{THUMBS_PREFIX}{folder}*",
+    ]
     policy = {
         "Statement": [
             {
-                "Resource": resource_url_pattern,
+                "Resource": r,
                 "Condition": {"DateLessThan": {"AWS:EpochTime": int(expires_epoch)}},
             }
+            for r in resources
         ]
     }
     return json.dumps(policy, separators=(",", ":"))
+
 
 def _sign_policy(policy_str: str) -> Tuple[str, str]:
     key = _load_private_key()
@@ -164,6 +183,7 @@ def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         return {}
 
+
 def _normalize_folder(folder: str) -> str:
     s = (folder or "").strip()
     if not s:
@@ -185,6 +205,7 @@ def _normalize_folder(folder: str) -> str:
 
     return f"{s}/"  # always "client/job/"
 
+
 def _parse_folder_from_admin_request(event: Dict[str, Any]) -> str:
     q = event.get("queryStringParameters") or {}
     folder = q.get("folder")
@@ -194,6 +215,7 @@ def _parse_folder_from_admin_request(event: Dict[str, Any]) -> str:
     if folder is None:
         raise ValueError("folder_required")
     return _normalize_folder(folder)
+
 
 def _parse_link_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
     q = event.get("queryStringParameters") or {}
@@ -206,6 +228,7 @@ def _parse_link_ttl_seconds_from_admin_request(event: Dict[str, Any]) -> int:
     if link_ttl_seconds < 60:
         raise ValueError("link_ttl_seconds_must_be_ge_60")
     return link_ttl_seconds
+
 
 def _parse_token(event: Dict[str, Any]) -> Optional[str]:
     q = event.get("queryStringParameters") or {}
@@ -241,6 +264,7 @@ def _cookie_attrs(max_age: Optional[int]) -> str:
         parts.append(f"Max-Age={int(max_age)}")
     return "; ".join(parts)
 
+
 def _response_json(status: int, payload: Dict[str, Any], cache_control: str = "no-store") -> Dict[str, Any]:
     return {
         "statusCode": status,
@@ -251,13 +275,13 @@ def _response_json(status: int, payload: Dict[str, Any], cache_control: str = "n
         "body": json.dumps(payload),
     }
 
+
 def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
     cookie_strings = []
     attrs = _cookie_attrs(max_age)
     for k, v in cookies.items():
         cookie_strings.append(f"{k}={v}; {attrs}")
 
-    # cookies + multiValueHeaders covers different proxy flavors
     return {
         "statusCode": 302,
         "headers": {
@@ -269,6 +293,7 @@ def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional
         "multiValueHeaders": {"Set-Cookie": cookie_strings},
         "body": "",
     }
+
 
 def _redirect_error(http_code: int, reason: str) -> Dict[str, Any]:
     location = (
@@ -290,9 +315,11 @@ def _is_allowed_image_key(key: str) -> bool:
     lk = key.lower()
     return any(lk.endswith(ext) for ext in ALLOWED_IMAGE_EXT)
 
+
 def _is_allowed_zip_key(key: str) -> bool:
     lk = key.lower()
     return any(lk.endswith(ext) for ext in ALLOWED_ZIP_EXT)
+
 
 def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
     image_keys: List[str] = []
@@ -335,8 +362,8 @@ def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
 # Helpers: DynamoDB token ops
 # =============================================================================
 def _new_token() -> str:
-    # URL-safe, compact token
     return secrets.token_urlsafe(24)
+
 
 def _ddb_get_token(token: str) -> Optional[Dict[str, Any]]:
     try:
@@ -357,8 +384,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     try:
         # ---------------------------------------------------------------------
-        # ADMIN: GET /admin/links  (Option A: Scan)
-        # NOTE: protect this route with API Gateway authorizer (Cognito JWT).
+        # ADMIN: GET /admin/links
         # ---------------------------------------------------------------------
         if method == "GET" and path.endswith(ADMIN_LINKS_PATH):
             q = event.get("queryStringParameters") or {}
@@ -413,11 +439,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_json(200, {"items": items, "returned": len(items), "scanned": scanned})
 
         # ---------------------------------------------------------------------
-        # ADMIN: POST /sign -> creates token in DynamoDB and returns share_url
-        # NOTE: protect this route with API Gateway authorizer (Cognito JWT).
+        # ADMIN: POST /sign
         # ---------------------------------------------------------------------
         if method == "POST" and path.endswith(SIGN_PATH):
-            folder = _parse_folder_from_admin_request(event)  # "client/job/"
+            folder = _parse_folder_from_admin_request(event)
             link_ttl_seconds = _parse_link_ttl_seconds_from_admin_request(event)
 
             now = int(time.time())
@@ -437,18 +462,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "ttl_epoch": int(ttl_epoch),
             }
 
-            # ensure uniqueness
-            _table.put_item(
-                Item=item,
-                ConditionExpression="attribute_not_exists(link_token)",
-            )
+            _table.put_item(Item=item, ConditionExpression="attribute_not_exists(link_token)")
 
             share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={token}"
             return _response_json(200, {"share_url": share_url, "token": token})
 
         # ---------------------------------------------------------------------
-        # ADMIN: POST /revoke -> deletes token from DynamoDB (disables link)
-        # NOTE: protect this route with API Gateway authorizer (Cognito JWT).
+        # ADMIN: POST /revoke
         # ---------------------------------------------------------------------
         if method == "POST" and path.endswith(REVOKE_PATH):
             token = _parse_token(event)
@@ -459,13 +479,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_json(200, {"ok": True, "revoked": token})
 
         # ---------------------------------------------------------------------
-        # PUBLIC: GET /open?t=... -> validate token in DynamoDB, set CF cookies, redirect
+        # PUBLIC: methods
         # ---------------------------------------------------------------------
         if method not in ("GET", "HEAD"):
             if wants_redirect:
                 return _redirect_error(405, "method_not_allowed")
             return _response_json(405, {"error": "method_not_allowed"})
 
+        # ---------------------------------------------------------------------
+        # PUBLIC: GET /open?t=...
+        # ---------------------------------------------------------------------
         if path.endswith(OPEN_PATH):
             token = _parse_token(event)
             if not token:
@@ -484,7 +507,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if not folder:
                 return _redirect_error(400, "bad_request")
 
-            # cookie TTL fixed (24h), but never exceed remaining link lifetime
             cookie_ttl_seconds = int(item.get("cookie_ttl_seconds", DEFAULT_TTL_SECONDS) or DEFAULT_TTL_SECONDS)
             cookie_ttl_seconds = max(60, min(cookie_ttl_seconds, MAX_TTL_SECONDS))
 
@@ -496,8 +518,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             expires_epoch = now + cookie_ttl_seconds
 
-            resource_pattern = f"https://{CLOUDFRONT_DOMAIN}/{BASE_PREFIX}{folder}*"
-            policy_str = _build_custom_policy(resource_pattern, expires_epoch)
+            # NEW: signed policy covers BOTH gallery + thumbs for this folder
+            policy_str = _build_custom_policy_for_folder(folder, expires_epoch)
             policy_b64, sig_b64 = _sign_policy(policy_str)
 
             cookies = {
@@ -506,7 +528,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
             }
 
-            # Redirect to gallery, include folder and (optionally) t
             location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder, safe='')}"
             if INCLUDE_TOKEN_IN_REDIRECT:
                 location += f"&t={quote(token, safe='')}"
@@ -515,8 +536,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_redirect(location, cookies, max_age)
 
         # ---------------------------------------------------------------------
-        # PUBLIC: GET /list?folder=...&t=...  -> validates token + folder match, then S3 list
-        # Cached for 5 minutes.
+        # PUBLIC: GET /list?folder=...&t=...
         # ---------------------------------------------------------------------
         if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
             q = event.get("queryStringParameters") or {}
@@ -541,14 +561,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if link_exp and now > link_exp:
                 return _response_json(403, {"error": "link_expired"})
 
-            # normalize and enforce token is only for its own folder
-            req_folder = _normalize_folder(folder_in)          # "client/job/"
-            token_folder = (item.get("folder") or "").strip()  # "client/job/"
+            req_folder = _normalize_folder(folder_in)
+            token_folder = (item.get("folder") or "").strip()
 
             if req_folder != token_folder:
                 return _response_json(403, {"error": "folder_not_allowed"})
 
-            prefix = BASE_PREFIX + req_folder  # "gallery/client/job/"
+            prefix = BASE_PREFIX + req_folder
 
             files, zip_key = _list_folder_for_prefix(prefix)
 

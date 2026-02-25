@@ -1,3 +1,4 @@
+
 (function () {
   function qs(id) { return document.getElementById(id); }
 
@@ -6,12 +7,20 @@
     window.location.replace(u);
   }
 
+  function showToast(msg, ms = 3500) {
+    const el = qs("toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    window.clearTimeout(showToast._t);
+    showToast._t = window.setTimeout(() => el.classList.remove("show"), ms);
+  }
+
   function getFolderFromQuery() {
     const url = new URL(window.location.href);
     return url.searchParams.get("folder") || "";
   }
 
-  // NEW: token comes from /open redirect (?t=...)
   function getTokenFromQuery() {
     const url = new URL(window.location.href);
     return url.searchParams.get("t") || "";
@@ -19,14 +28,13 @@
 
   function normalizeFolder(folder) {
     let f = (folder || "").trim();
-    f = f.replace(/^\/+/, "");   // no leading slash
-    f = f.replace(/\/+$/, "");   // no trailing slash
+    f = f.replace(/^\/+/, "");
+    f = f.replace(/\/+$/, "");
     if (!f) return null;
-    return f + "/"; // must end with /
+    return f + "/";
   }
 
   function encodeKeyForUrl(key) {
-    // Encode each path segment but keep slashes
     return (key || "").split("/").map(encodeURIComponent).join("/");
   }
 
@@ -48,38 +56,135 @@
     if (st) st.textContent = msg;
   }
 
-  // NEW: /list now requires token (t=...)
+  function extLower(key) {
+    const m = (key || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+    return m ? m[1] : "";
+  }
+
+  function isVideoKey(key) {
+    const e = extLower(key);
+    return ["mp4", "mov", "webm", "m4v"].includes(e);
+  }
+
+  function isImageKey(key) {
+    const e = extLower(key);
+    return ["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp"].includes(e);
+  }
+
   async function loadList(folder, token) {
     const url = `/list?folder=${encodeURIComponent(folder)}&t=${encodeURIComponent(token)}`;
     const resp = await fetch(url, { cache: "no-store" });
 
-    // Your new Lambda returns 403 for missing/invalid/expired token
-    if (resp.status === 401 || resp.status === 403) {
-      goError(403, "link_expired");
-      return null;
-    }
-    if (resp.status === 404) {
-      goError(404, "not_found");
-      return null;
-    }
-    if (!resp.ok) {
-      goError(500, "list_failed");
-      return null;
-    }
-
+    if (resp.status === 401 || resp.status === 403) { goError(403, "link_expired"); return null; }
+    if (resp.status === 404) { goError(404, "not_found"); return null; }
+    if (!resp.ok) { goError(500, "list_failed"); return null; }
     return resp.json();
   }
 
-  // ----------------------------
-  // Lightbox (Modal) logic
-  // ----------------------------
+  // -------------------------
+  // THUMB URL MAPPING
+  // Originals: gallery/<album>/file.ext
+  // Thumbs:    thumbs/<album>/thumb-of-file.jpg (or .png if alpha)
+  // -------------------------
+  const SOURCE_PREFIX = "gallery/";
+  const THUMBS_PREFIX = "thumbs/";
+  const THUMB_PREFIX = "thumb-of-";
+
+  function stripExt(name) {
+    return (name || "").replace(/\.[^.]+$/, "");
+  }
+
+  function toThumbKeyWithExt(originalKey, outExtWithDot) {
+    if (!originalKey || !originalKey.startsWith(SOURCE_PREFIX)) return null;
+
+    const rel = originalKey.slice(SOURCE_PREFIX.length); // "<album>/file.ext"
+    const parts = rel.split("/").filter(Boolean);
+    const base = parts.pop();
+    const dir = parts.join("/"); // "<album>" or "<album>/sub"
+    if (!base) return null;
+
+    const baseNoExt = stripExt(base);
+    const thumbBase = `${THUMB_PREFIX}${baseNoExt}${outExtWithDot}`;
+
+    return dir
+      ? `${THUMBS_PREFIX}${dir}/${thumbBase}`
+      : `${THUMBS_PREFIX}${thumbBase}`;
+  }
+
+  function thumbUrlCandidates(originalKey) {
+    // return array of candidate THUMB URLs (already prefixed with "/")
+    // - videos: always jpg placeholder
+    // - images: try jpg first, then png (because thumb generator may output png for alpha)
+    if (isVideoKey(originalKey)) {
+      const k = toThumbKeyWithExt(originalKey, ".jpg");
+      return k ? [`/${encodeKeyForUrl(k)}`] : [];
+    }
+
+    if (!isImageKey(originalKey)) return [];
+
+    const out = [];
+    const jpg = toThumbKeyWithExt(originalKey, ".jpg");
+    if (jpg) out.push(`/${encodeKeyForUrl(jpg)}`);
+
+    const png = toThumbKeyWithExt(originalKey, ".png");
+    if (png) out.push(`/${encodeKeyForUrl(png)}`);
+
+    return out;
+  }
+
+  function originalUrl(key) {
+    return `/${encodeKeyForUrl(key)}`;
+  }
+
+  // Set <img> src by trying candidates in order; optionally fallback to original.
+  function setImgWithThumbFallback(imgEl, candidates, finalFallbackUrlOrNull) {
+    let i = 0;
+    let usingFinalFallback = false;
+
+    function tryNext() {
+      if (i < candidates.length) {
+        imgEl.src = candidates[i++];
+        return;
+      }
+      if (finalFallbackUrlOrNull && !usingFinalFallback) {
+        usingFinalFallback = true;
+        imgEl.src = finalFallbackUrlOrNull;
+        return;
+      }
+      // out of options: leave broken
+    }
+
+    imgEl.onerror = () => {
+      // stop infinite loops
+      imgEl.onerror = null;
+      tryNext();
+      // restore handler if there are still more options to try
+      if ((i < candidates.length) || (finalFallbackUrlOrNull && !usingFinalFallback)) {
+        imgEl.onerror = () => {
+          imgEl.onerror = null;
+          tryNext();
+          if ((i < candidates.length) || (finalFallbackUrlOrNull && !usingFinalFallback)) {
+            // reattach for further attempts
+            imgEl.onerror = arguments.callee;
+          }
+        };
+      }
+    };
+
+    tryNext();
+  }
+
+  // ---------- state ----------
   const state = {
     files: [],
-    currentIndex: -1,
+    visualOrder: [],
+    currentPos: -1,
     folder: "",
-    token: "" // NEW
+    token: "",
+    modalReqId: 0
   };
 
+  // ---------- modal refs ----------
   const modal = () => qs("modal");
   const modalImg = () => qs("modalImg");
   const modalTitle = () => qs("modalTitle");
@@ -89,6 +194,29 @@
   const nextBtn = () => qs("nextBtn");
   const modalStage = () => qs("modalStage");
 
+  // Create / reuse a video element inside modalStage
+  function ensureModalVideo() {
+    const stage = modalStage();
+    if (!stage) return null;
+    let v = stage.querySelector("video[data-modal-video='1']");
+    if (!v) {
+      v = document.createElement("video");
+      v.setAttribute("data-modal-video", "1");
+      v.controls = true;
+      v.playsInline = true;
+      v.preload = "metadata";
+      v.style.position = "relative";
+      v.style.zIndex = "1";
+      v.style.maxWidth = "min(96vw, 1800px)";
+      v.style.maxHeight = "min(84vh, 900px)";
+      v.style.width = "auto";
+      v.style.height = "auto";
+      v.style.display = "none";
+      stage.appendChild(v);
+    }
+    return v;
+  }
+
   function isModalOpen() {
     const m = modal();
     return !!(m && m.classList.contains("open"));
@@ -97,68 +225,170 @@
   function setModalOpen(open) {
     const m = modal();
     if (!m) return;
-
     if (open) {
       m.classList.add("open");
       document.body.style.overflow = "hidden";
     } else {
       m.classList.remove("open");
       document.body.style.overflow = "";
+      const mv = ensureModalVideo();
+      if (mv) { try { mv.pause(); } catch (_) {} }
     }
   }
 
-  function clampIndex(i) {
-    const n = state.files.length;
-    if (n <= 0) return -1;
-    return (i % n + n) % n;
+  function recentlyRefreshed() {
+    const ts = Number(sessionStorage.getItem("cf_refresh_ts") || "0");
+    return (Date.now() - ts) < 120000; // 2 min
   }
 
-  function showIndex(i) {
-    const n = state.files.length;
-    if (n <= 0) return;
+  function requestCookieRefresh(preserveVisualPos) {
+    if (!state.token) return false;
 
-    const idx = clampIndex(i);
-    state.currentIndex = idx;
+    if (recentlyRefreshed()) {
+      showToast("Ne mogu učitati. Ako je link istekao, otvorite ga ponovo.");
+      return false;
+    }
 
-    const key = state.files[idx];
-    const url = `/${encodeKeyForUrl(key)}`;
+    sessionStorage.setItem("cf_refresh_ts", String(Date.now()));
+    if (typeof preserveVisualPos === "number" && preserveVisualPos >= 0) {
+      sessionStorage.setItem("open_pos", String(preserveVisualPos));
+    }
+    showToast("Osvježavam pristup…", 1500);
+
+    window.location.replace(`/open?t=${encodeURIComponent(state.token)}`);
+    return true;
+  }
+
+  function markTileBroken(tile, message) {
+    tile.classList.add("broken");
+    let ov = tile.querySelector(".tileOverlay");
+    if (!ov) {
+      ov = document.createElement("div");
+      ov.className = "tileOverlay";
+      tile.appendChild(ov);
+    }
+    ov.textContent = message || "Ne mogu učitati. Dodirni za osvježenje.";
+    ov.onclick = (e) => {
+      e.preventDefault();
+      requestCookieRefresh(-1);
+    };
+  }
+
+  /* =========================
+     Masonry calculation
+  ========================= */
+  function resizeMasonryItem(tile) {
+    const grid = qs("grid");
+    if (!grid) return;
+    const styles = getComputedStyle(grid);
+    const rowH = parseFloat(styles.getPropertyValue("grid-auto-rows")) || 8;
+    const gap = parseFloat(styles.getPropertyValue("gap")) || 6;
+
+    const rect = tile.getBoundingClientRect();
+    const height = rect.height;
+    const span = Math.ceil((height + gap) / (rowH + gap));
+    tile.style.gridRowEnd = `span ${span}`;
+  }
+
+  function recalcMasonryAll() {
+    const grid = qs("grid");
+    if (!grid) return;
+    const tiles = Array.from(grid.querySelectorAll(".tile"));
+    tiles.forEach(resizeMasonryItem);
+    computeVisualOrder();
+  }
+
+  function computeVisualOrder() {
+    const grid = qs("grid");
+    if (!grid) return;
+
+    const tiles = Array.from(grid.querySelectorAll(".tile"));
+    const items = tiles.map((tile) => {
+      const idx = Number(tile.getAttribute("data-idx"));
+      const r = tile.getBoundingClientRect();
+      return { idx, top: r.top, left: r.left };
+    });
+
+    items.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+    state.visualOrder = items.map(x => x.idx);
+  }
+
+  function openByVisualPos(pos) {
+    if (!state.visualOrder.length) return;
+    const n = state.visualOrder.length;
+    const p = (pos % n + n) % n;
+    state.currentPos = p;
+
+    const fileIndex = state.visualOrder[p];
+    const key = state.files[fileIndex];
+
+    const origUrl = originalUrl(key);
+    const thumbCandidates = thumbUrlCandidates(key);
+    const thumbBg = thumbCandidates[0] || origUrl;
 
     const imgEl = modalImg();
+    const videoEl = ensureModalVideo();
     const titleEl = modalTitle();
     const dlEl = modalDownload();
+    const stage = modalStage();
 
     if (titleEl) titleEl.textContent = basename(key);
+
     if (dlEl) {
-      dlEl.href = url;
+      dlEl.href = origUrl;
       dlEl.setAttribute("download", basename(key));
+      dlEl.onclick = null;
+    }
+
+    // Use thumb as blurred background (faster than downloading original just for bg)
+    if (stage) stage.style.setProperty("--stage-bg", `url("${thumbBg}")`);
+
+    const reqId = ++state.modalReqId;
+
+    if (imgEl) { imgEl.style.display = "none"; imgEl.onerror = null; imgEl.removeAttribute("src"); }
+    if (videoEl) {
+      try { videoEl.pause(); } catch (_) {}
+      videoEl.style.display = "none";
+      videoEl.onerror = null;
+      videoEl.removeAttribute("src");
+      try { videoEl.load(); } catch (_) {}
+    }
+
+    if (isVideoKey(key)) {
+      if (!videoEl) return;
+      videoEl.style.display = "block";
+      videoEl.src = origUrl;
+      videoEl.onerror = () => {
+        if (!isModalOpen()) return;
+        if (reqId !== state.modalReqId) return;
+        const did = requestCookieRefresh(p);
+        if (!did) showToast("Ne mogu učitati video. Otvorite link ponovo.");
+      };
+      return;
     }
 
     if (imgEl) {
-      imgEl.onerror = () => goError(403, "cookies_expired");
-      imgEl.removeAttribute("src");
-      imgEl.src = url;
+      imgEl.style.display = "block";
+      imgEl.onerror = () => {
+        if (!isModalOpen()) return;
+        if (reqId !== state.modalReqId) return;
+        const did = requestCookieRefresh(p);
+        if (!did) showToast("Ne mogu učitati sliku. Otvorite link ponovo.");
+      };
+      imgEl.src = origUrl;
     }
   }
 
-  function openModalAt(i) {
-    if (!state.files || state.files.length === 0) return;
+  function openModalAtFileIndex(fileIdx) {
+    if (!state.visualOrder.length) computeVisualOrder();
+    const pos = state.visualOrder.indexOf(fileIdx);
     setModalOpen(true);
-    showIndex(i);
+    openByVisualPos(pos >= 0 ? pos : 0);
   }
 
-  function closeModal() {
-    setModalOpen(false);
-  }
-
-  function next() {
-    if (!isModalOpen()) return;
-    showIndex(state.currentIndex + 1);
-  }
-
-  function prev() {
-    if (!isModalOpen()) return;
-    showIndex(state.currentIndex - 1);
-  }
+  function closeModal() { setModalOpen(false); }
+  function next() { if (isModalOpen()) openByVisualPos(state.currentPos + 1); }
+  function prev() { if (isModalOpen()) openByVisualPos(state.currentPos - 1); }
 
   function setupModalHandlers() {
     const m = modal();
@@ -220,66 +450,111 @@
     }
   }
 
-  // ----------------------------
-  // Grid render + click to open
-  // ----------------------------
-  function renderImages(files) {
+  function renderMedia(files) {
     const grid = qs("grid");
     if (!grid) return;
 
     grid.innerHTML = "";
 
-    if (!files || files.length === 0) {
-      setStatus("No images found.");
+    const onlyMedia = (files || []).filter(k => isImageKey(k) || isVideoKey(k));
+    if (onlyMedia.length === 0) {
+      setStatus("No media found.");
       return;
     }
 
-    setStatus(`Loaded ${files.length} images`);
+    setStatus(`Loaded ${onlyMedia.length} items`);
 
+    // NOTE: keep the original indexes from `files` so visualOrder works correctly
     files.forEach((key, idx) => {
+      if (!isImageKey(key) && !isVideoKey(key)) return;
+
       const tile = document.createElement("div");
       tile.className = "tile";
+      tile.setAttribute("data-idx", String(idx));
 
+      const origUrl = originalUrl(key);
+      const thumbCandidates = thumbUrlCandidates(key);
+
+      // Grid uses <img> for both images and videos (video uses placeholder thumb)
       const img = document.createElement("img");
       img.loading = "lazy";
       img.decoding = "async";
-      img.referrerPolicy = "no-referrer";
-      img.src = `/${encodeKeyForUrl(key)}`;
+      img.style.width = "100%";
+      img.style.height = "auto";
+      img.style.display = "block";
+      img.style.cursor = "zoom-in";
 
-      img.onerror = () => goError(403, "cookies_expired");
+      if (isVideoKey(key)) {
+        // video: thumbs only (no fallback to origUrl because origUrl is a video)
+        setImgWithThumbFallback(img, thumbCandidates, null);
+
+        img.onerror = () => {
+          markTileBroken(tile, "Ne mogu učitati video thumbnail. Dodirni za osvježenje.");
+          requestAnimationFrame(() => resizeMasonryItem(tile));
+        };
+      } else {
+        // image: thumbs first, fallback to original if thumb missing
+        setImgWithThumbFallback(img, thumbCandidates, origUrl);
+
+        img.onerror = () => {
+          // If even original failed, treat as access issue
+          markTileBroken(tile, "Ne mogu učitati. Dodirni za osvježenje.");
+          requestAnimationFrame(() => resizeMasonryItem(tile));
+        };
+      }
+
+      img.onload = () => {
+        requestAnimationFrame(() => {
+          resizeMasonryItem(tile);
+          computeVisualOrder();
+        });
+      };
 
       img.addEventListener("click", (e) => {
         e.preventDefault();
-        openModalAt(idx);
-      });
-
-      tile.tabIndex = 0;
-      tile.setAttribute("role", "button");
-      tile.setAttribute("aria-label", `Open ${basename(key)}`);
-      tile.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openModalAt(idx);
-        }
+        computeVisualOrder();
+        openModalAtFileIndex(idx);
       });
 
       tile.appendChild(img);
+
+      // Video badge (play icon)
+      if (isVideoKey(key)) {
+        const badge = document.createElement("div");
+        badge.textContent = "▶";
+        badge.style.position = "absolute";
+        badge.style.left = "10px";
+        badge.style.bottom = "10px";
+        badge.style.padding = "6px 8px";
+        badge.style.fontWeight = "900";
+        badge.style.background = "rgba(0,0,0,0.55)";
+        badge.style.color = "#fff";
+        tile.appendChild(badge);
+      }
+
+      const overlay = document.createElement("div");
+      overlay.className = "tileOverlay";
+      overlay.textContent = "Ne mogu učitati. Dodirni za osvježenje.";
+      overlay.addEventListener("click", (e) => {
+        e.preventDefault();
+        requestCookieRefresh(-1);
+      });
+      tile.appendChild(overlay);
+
       grid.appendChild(tile);
+    });
+
+    requestAnimationFrame(() => {
+      recalcMasonryAll();
+      setTimeout(recalcMasonryAll, 250);
     });
   }
 
-  // ----------------------------
-  // Download ZIP logic (unchanged)
-  // ----------------------------
   async function clientSideZipDownload(files, folder) {
-    if (!window.JSZip) {
-      goError(500, "jszip_missing");
-      return;
-    }
-    if (!files || files.length === 0) {
-      setStatus("Nothing to download.");
-      return;
-    }
+    if (!window.JSZip) { goError(500, "jszip_missing"); return; }
+
+    const onlyMedia = (files || []).filter(k => isImageKey(k) || isVideoKey(k));
+    if (onlyMedia.length === 0) { setStatus("Nothing to download."); return; }
 
     const zip = new JSZip();
     const zipFilename = safeZipName(folder);
@@ -288,24 +563,24 @@
     let i = 0;
     let done = 0;
 
-    setStatus(`Preparing ZIP… 0/${files.length}`);
+    setStatus(`Preparing ZIP… 0/${onlyMedia.length}`);
 
     async function worker() {
       while (true) {
         const idx = i++;
-        if (idx >= files.length) return;
+        if (idx >= onlyMedia.length) return;
 
-        const key = files[idx];
-        const url = `/${encodeKeyForUrl(key)}`;
+        const key = onlyMedia[idx];
+        const url = originalUrl(key);
 
         const r = await fetch(url, { cache: "no-store" });
         if (r.status === 401 || r.status === 403) {
-          goError(403, "cookies_expired");
+          showToast("Pristup je istekao. Otvorite link ponovo.");
           return;
         }
         if (!r.ok) {
           done++;
-          setStatus(`Preparing ZIP… ${done}/${files.length} (skipped 1)`);
+          setStatus(`Preparing ZIP… ${done}/${onlyMedia.length} (skipped 1)`);
           continue;
         }
 
@@ -313,15 +588,14 @@
         zip.file(basename(key), blob);
 
         done++;
-        setStatus(`Preparing ZIP… ${done}/${files.length}`);
+        setStatus(`Preparing ZIP… ${done}/${onlyMedia.length}`);
       }
     }
 
-    const workers = Array.from({ length: Math.min(concurrency, files.length) }, () => worker());
+    const workers = Array.from({ length: Math.min(concurrency, onlyMedia.length) }, () => worker());
     await Promise.all(workers);
 
     setStatus("Building ZIP…");
-
     const outBlob = await zip.generateAsync({ type: "blob" });
 
     const a = document.createElement("a");
@@ -333,7 +607,6 @@
     a.remove();
 
     setTimeout(() => URL.revokeObjectURL(objUrl), 30_000);
-
     setStatus(`Downloaded ${zipFilename}`);
   }
 
@@ -347,9 +620,10 @@
 
     btn.style.display = "inline-block";
 
-    if (!files || files.length === 0) {
+    const onlyMedia = files.filter(k => isImageKey(k) || isVideoKey(k));
+    if (onlyMedia.length === 0) {
       btn.disabled = true;
-      btn.title = "No images to download";
+      btn.title = "No images/videos to download";
       btn.onclick = null;
       return;
     }
@@ -358,7 +632,7 @@
       btn.disabled = false;
       btn.title = "Download server-generated ZIP";
       const url = `/${encodeKeyForUrl(zipKey)}`;
-      btn.onclick = () => window.open(url, "_blank", "noopener,noreferrer");
+      btn.onclick = () => { window.location.assign(url); };
       return;
     }
 
@@ -367,38 +641,33 @@
     btn.onclick = () => clientSideZipDownload(files, folder).catch(() => goError(500, "zip_failed"));
   }
 
-  function setupThemeToggle() {
-    const btn = qs("themeToggle");
-    if (!btn) return;
+  // -------------------------
+  // Probe signed-cookie readiness before rendering tiles.
+  // We probe ORIGINAL media path (gallery/...) because 403 there is a clear sign cookies aren't valid.
+  // -------------------------
+  async function probeMediaAccess(files) {
+    const first = (files || []).find(k => isImageKey(k) || isVideoKey(k));
+    if (!first) return true;
 
-    btn.addEventListener("click", () => {
-      const html = document.documentElement;
-      const cur = html.getAttribute("data-theme") || "light";
-      const next = cur === "dark" ? "light" : "dark";
-      html.setAttribute("data-theme", next);
-      btn.textContent = next === "dark" ? "Light mode" : "Dark mode";
-    });
+    const url = originalUrl(first);
+    try {
+      const r = await fetch(url, { method: "HEAD", cache: "no-store" });
+      if (r.status === 403 || r.status === 401) return false;
+      return true;
+    } catch (_) {
+      return true;
+    }
   }
 
   async function main() {
-    setupThemeToggle();
     setupModalHandlers();
 
     const rawFolder = getFolderFromQuery();
     const folder = normalizeFolder(rawFolder);
-
-    // NEW: require token for /list
     const token = (getTokenFromQuery() || "").trim();
 
-    if (!folder) {
-      goError(400, "missing_folder");
-      return;
-    }
-    if (!token) {
-      // If user lands directly on index.html without coming through /open
-      goError(403, "missing_token");
-      return;
-    }
+    if (!folder) { goError(400, "missing_folder"); return; }
+    if (!token) { goError(403, "missing_token"); return; }
 
     state.folder = folder;
     state.token = token;
@@ -413,8 +682,32 @@
 
     state.files = files;
 
+    const ok = await probeMediaAccess(files);
+    if (!ok) {
+      const did = requestCookieRefresh(-1);
+      if (did) return;
+    }
+
     setupDownloadButton({ zipKey, files, folder });
-    renderImages(files);
+    renderMedia(files);
+
+    const savedPos = sessionStorage.getItem("open_pos");
+    if (savedPos != null) {
+      sessionStorage.removeItem("open_pos");
+      const pos = Number(savedPos);
+      if (Number.isFinite(pos) && pos >= 0) {
+        setTimeout(() => {
+          computeVisualOrder();
+          setModalOpen(true);
+          openByVisualPos(pos);
+        }, 150);
+      }
+    }
+
+    window.addEventListener("resize", () => {
+      recalcMasonryAll();
+      setTimeout(recalcMasonryAll, 200);
+    });
   }
 
   window.addEventListener("load", () => {

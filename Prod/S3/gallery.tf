@@ -61,6 +61,8 @@ module "gallery-bucket" {
   }
 }
 
+
+
 /*
 resource "aws_s3_object" "gallery" {
   for_each = {
@@ -81,3 +83,4 @@ resource "aws_s3_object" "gallery" {
 
 }
 */
+
