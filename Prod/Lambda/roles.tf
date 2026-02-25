@@ -165,6 +165,6 @@ resource "aws_iam_policy" "lambda_thumb_s3" {
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_thumb_s3" {
-  role       = aws_iam_role.lambda_thumb_s3.name
+  role       = aws_iam_role.lambda_thumb.name
   policy_arn = aws_iam_policy.lambda_list_bucket.arn
 }

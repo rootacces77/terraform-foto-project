@@ -1,6 +1,8 @@
 import os
 import posixpath
 import uuid
+import json
+import traceback
 from urllib.parse import unquote_plus
 
 import boto3
@@ -14,10 +16,7 @@ SOURCE_PREFIX = os.getenv("SOURCE_PREFIX", "gallery/").strip().lstrip("/")
 if SOURCE_PREFIX and not SOURCE_PREFIX.endswith("/"):
     SOURCE_PREFIX += "/"
 
-# NEW: thumbs go under a different top-level prefix
 THUMB_ROOT_PREFIX = os.getenv("THUMB_ROOT_PREFIX", "thumbs/").strip().strip("/") + "/"
-
-# thumb filename prefix
 THUMB_PREFIX = os.getenv("THUMB_PREFIX", "thumb-of-")
 
 # --- Thumb output ---
@@ -30,12 +29,14 @@ THUMB_DECIDER_MODE = os.getenv("THUMB_DECIDER_MODE", "bytes").strip().lower()  #
 THUMB_DECIDER_MIN_MIB = float(os.getenv("THUMB_DECIDER_MIN_MIB", "0"))
 THUMB_DECIDER_MIN_MAXDIM_PX = int(os.getenv("THUMB_DECIDER_MIN_MAXDIM_PX", "0"))
 
-# Optional: create folder marker so S3 browsers show thumbs/<album>/
 CREATE_THUMB_FOLDER_MARKER = os.getenv("CREATE_THUMB_FOLDER_MARKER", "true").lower() == "true"
 
-# Extensions
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
-VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi"}  # adjust as needed
+VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi"}
+
+
+def log(obj):
+    print(json.dumps(obj, ensure_ascii=False))
 
 
 def _ext(key: str) -> str:
@@ -51,12 +52,10 @@ def is_video_key(key: str) -> bool:
 
 
 def is_thumb_key(key: str) -> bool:
-    # thumbs are outside gallery/, but keep a guard anyway
     return key.startswith(THUMB_ROOT_PREFIX)
 
 
 def _rel_from_source(key: str) -> str:
-    # gallery/<album>/file -> <album>/file
     rel = key[len(SOURCE_PREFIX):] if key.startswith(SOURCE_PREFIX) else key
     return rel.lstrip("/")
 
@@ -67,25 +66,18 @@ def thumb_key_for(original_key: str, out_ext: str) -> str:
     rel_dir = posixpath.dirname(rel)   # <album>
     base = posixpath.basename(rel)     # file.ext
 
-    if rel_dir and rel_dir != ".":
-        dest_dir = posixpath.join(THUMB_ROOT_PREFIX.rstrip("/"), rel_dir)
-    else:
-        dest_dir = THUMB_ROOT_PREFIX.rstrip("/")
+    dest_dir = posixpath.join(THUMB_ROOT_PREFIX.rstrip("/"), rel_dir) if rel_dir and rel_dir != "." else THUMB_ROOT_PREFIX.rstrip("/")
 
-    thumb_key = posixpath.join(dest_dir, f"{THUMB_PREFIX}{base}")
-    root, _ = posixpath.splitext(thumb_key)
-    return root + out_ext
+    base_no_ext = base.replace(posixpath.splitext(base)[1], "")
+    thumb_base = f"{THUMB_PREFIX}{base_no_ext}{out_ext}"
+
+    return posixpath.join(dest_dir, thumb_base)
 
 
 def ensure_thumb_folder_marker(bucket: str, original_key: str):
-    # Create thumbs/<album>/ as a visible "folder" for S3 GUI tools
     rel = _rel_from_source(original_key)
     rel_dir = posixpath.dirname(rel)
-
-    if rel_dir and rel_dir != ".":
-        marker_key = posixpath.join(THUMB_ROOT_PREFIX.rstrip("/"), rel_dir) + "/"
-    else:
-        marker_key = THUMB_ROOT_PREFIX
+    marker_key = (posixpath.join(THUMB_ROOT_PREFIX.rstrip("/"), rel_dir) + "/") if rel_dir and rel_dir != "." else THUMB_ROOT_PREFIX
 
     try:
         s3.head_object(Bucket=bucket, Key=marker_key)
@@ -105,7 +97,6 @@ def ensure_thumb_folder_marker(bucket: str, original_key: str):
 
 
 def choose_output_for_image(img: Image.Image):
-    # If transparency -> PNG, else JPEG
     mode = (img.mode or "").upper()
     has_alpha = ("A" in mode) or ("transparency" in img.info)
     if has_alpha:
@@ -130,9 +121,8 @@ def should_process_by_pixels(max_dim: int) -> bool:
 
 
 def render_video_placeholder(out_path: str, size: int, label: str = "VIDEO"):
-    # Simple JPEG placeholder using Pillow only (no ffmpeg)
     w = max(240, int(size))
-    h = max(135, int(w * 9 / 16))  # 16:9
+    h = max(135, int(w * 9 / 16))
     im = Image.new("RGB", (w, h), (12, 12, 12))
     draw = ImageDraw.Draw(im)
 
@@ -144,17 +134,21 @@ def render_video_placeholder(out_path: str, size: int, label: str = "VIDEO"):
         font = ImageFont.load_default()
     except Exception:
         font = None
-    txt = label
-    bbox = draw.textbbox((0, 0), txt, font=font)
-    tw, th = (bbox[2] - bbox[0], bbox[3] - bbox[1])
-    draw.text((10, h - th - 10), txt, fill=(200, 200, 200), font=font)
 
+    # Pillow compatibility: try textbbox, fallback to textsize
+    try:
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw, th = (bbox[2] - bbox[0], bbox[3] - bbox[1])
+    except Exception:
+        tw, th = draw.textsize(label, font=font)
+
+    draw.text((10, h - th - 10), label, fill=(200, 200, 200), font=font)
     im.save(out_path, format="JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
 
 
 def lambda_handler(event, context):
     records = event.get("Records", [])
-    out = {"processed": 0, "skipped": 0, "errors": 0, "items": []}
+    out = {"processed": 0, "skipped": 0, "errors": 0}
 
     mode = THUMB_DECIDER_MODE if THUMB_DECIDER_MODE in ("bytes", "pixels") else "bytes"
 
@@ -162,26 +156,23 @@ def lambda_handler(event, context):
         try:
             bucket = r["s3"]["bucket"]["name"]
             key = unquote_plus(r["s3"]["object"]["key"])
-
-            # Only react to objects under gallery/
-            if not key.startswith(SOURCE_PREFIX) or key.endswith("/") or is_thumb_key(key):
-                out["skipped"] += 1
-                out["items"].append({"key": key, "status": "skipped", "reason": "not_source"})
-                continue
-
-            is_img = is_image_key(key)
-            is_vid = is_video_key(key)
-            if not (is_img or is_vid):
-                out["skipped"] += 1
-                out["items"].append({"key": key, "status": "skipped", "reason": "not_image_or_video"})
-                continue
-
             obj_size = int(r["s3"]["object"].get("size", 0) or 0)
 
-            # Bytes mode: skip before download
+            if not key.startswith(SOURCE_PREFIX) or key.endswith("/") or is_thumb_key(key):
+                out["skipped"] += 1
+                log({"SKIP": "not_source_or_folder_or_thumb", "key": key})
+                continue
+
+            img = is_image_key(key)
+            vid = is_video_key(key)
+            if not (img or vid):
+                out["skipped"] += 1
+                log({"SKIP": "not_image_or_video", "key": key})
+                continue
+
             if mode == "bytes" and not should_process_by_bytes(obj_size):
                 out["skipped"] += 1
-                out["items"].append({"key": key, "status": "skipped", "reason": "bytes_gate", "obj_size": obj_size})
+                log({"SKIP": "bytes_gate", "key": key, "size": obj_size, "min_bytes": bytes_threshold()})
                 continue
 
             if CREATE_THUMB_FOLDER_MARKER:
@@ -189,26 +180,17 @@ def lambda_handler(event, context):
 
             out_tmp = f"/tmp/out-{uuid.uuid4().hex}"
 
-            # Videos: create a placeholder thumbnail (JPEG) without downloading video
-            if is_vid:
-                content_type = "image/jpeg"
-                out_ext = ".jpg"
-                thumb_key = thumb_key_for(key, out_ext)
-
+            if vid:
+                thumb_key = thumb_key_for(key, ".jpg")
                 render_video_placeholder(out_tmp, THUMB_MAX_SIZE, label="VIDEO")
-
                 s3.upload_file(
-                    out_tmp,
-                    bucket,
-                    thumb_key,
-                    ExtraArgs={"ContentType": content_type, "CacheControl": CACHE_CONTROL},
+                    out_tmp, bucket, thumb_key,
+                    ExtraArgs={"ContentType": "image/jpeg", "CacheControl": CACHE_CONTROL},
                 )
-
                 out["processed"] += 1
-                out["items"].append({"key": key, "thumb": thumb_key, "status": "ok", "type": "video", "obj_size": obj_size})
+                log({"OK": "video_thumb", "key": key, "thumb": thumb_key, "size": obj_size})
                 continue
 
-            # Images: download and resize
             src_tmp = f"/tmp/src-{uuid.uuid4().hex}"
             s3.download_file(bucket, key, src_tmp)
 
@@ -217,39 +199,32 @@ def lambda_handler(event, context):
                 w, h = im.size
                 max_dim = max(w, h)
 
-                # Pixels mode: gate after open
                 if mode == "pixels" and not should_process_by_pixels(max_dim):
                     out["skipped"] += 1
-                    out["items"].append({"key": key, "status": "skipped", "reason": "pixels_gate", "dims": [w, h]})
+                    log({"SKIP": "pixels_gate", "key": key, "dims": [w, h], "min_px": THUMB_DECIDER_MIN_MAXDIM_PX})
                     continue
 
                 im.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), Image.Resampling.LANCZOS)
-
                 fmt, content_type, out_ext = choose_output_for_image(im)
                 thumb_key = thumb_key_for(key, out_ext)
 
-                save_kwargs = {}
+                save_kwargs = {"optimize": True}
                 if fmt == "JPEG":
                     if im.mode not in ("RGB", "L"):
                         im = im.convert("RGB")
-                    save_kwargs = {"quality": JPEG_QUALITY, "optimize": True, "progressive": True}
-                else:
-                    save_kwargs = {"optimize": True}
+                    save_kwargs.update({"quality": JPEG_QUALITY, "progressive": True})
 
                 im.save(out_tmp, format=fmt, **save_kwargs)
 
             s3.upload_file(
-                out_tmp,
-                bucket,
-                thumb_key,
+                out_tmp, bucket, thumb_key,
                 ExtraArgs={"ContentType": content_type, "CacheControl": CACHE_CONTROL},
             )
-
             out["processed"] += 1
-            out["items"].append({"key": key, "thumb": thumb_key, "status": "ok", "type": "image", "obj_size": obj_size})
+            log({"OK": "image_thumb", "key": key, "thumb": thumb_key, "size": obj_size})
 
         except Exception as e:
             out["errors"] += 1
-            out["items"].append({"key": r.get("s3", {}).get("object", {}).get("key"), "status": "error", "error": str(e)})
+            log({"ERROR": str(e), "trace": traceback.format_exc()})
 
-    return out
+    return {"ok": out["errors"] == 0, **out}
