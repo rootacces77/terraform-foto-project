@@ -161,6 +161,21 @@ def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
     }
     return json.dumps(policy, separators=(",", ":"))
 
+def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
+    # folder like "test678/" (already normalized)
+    folder = (folder or "").lstrip("/")
+    resource = f"https://{CLOUDFRONT_DOMAIN}/*/{folder}*"
+
+    policy = {
+        "Statement": [
+            {
+                "Resource": resource,
+                "Condition": {"DateLessThan": {"AWS:EpochTime": int(expires_epoch)}},
+            }
+        ]
+    }
+    return json.dumps(policy, separators=(",", ":"))
+
 
 def _sign_policy(policy_str: str) -> Tuple[str, str]:
     key = _load_private_key()
@@ -276,23 +291,37 @@ def _response_json(status: int, payload: Dict[str, Any], cache_control: str = "n
     }
 
 
-def _response_redirect(location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
+def _is_payload_v2(event: Dict[str, Any]) -> bool:
+    # HTTP API v2 and Lambda Function URL are typically "2.0"
+    return str(event.get("version", "")).strip() == "2.0"
+
+
+def _response_redirect(event: Dict[str, Any], location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
     cookie_strings = []
     attrs = _cookie_attrs(max_age)
     for k, v in cookies.items():
+        # IMPORTANT: no quotes around v
         cookie_strings.append(f"{k}={v}; {attrs}")
 
-    return {
+    resp = {
         "statusCode": 302,
         "headers": {
             "Location": location,
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
         },
-        "cookies": cookie_strings,
-        "multiValueHeaders": {"Set-Cookie": cookie_strings},
         "body": "",
     }
+
+    # ✅ Correct way to set multiple cookies depends on payload version
+    if _is_payload_v2(event):
+        # HTTP API v2 / Lambda Function URL
+        resp["cookies"] = cookie_strings
+    else:
+        # REST API v1 (Lambda proxy)
+        resp["multiValueHeaders"] = {"Set-Cookie": cookie_strings}
+
+    return resp
 
 
 def _redirect_error(http_code: int, reason: str) -> Dict[str, Any]:
@@ -533,7 +562,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 location += f"&t={quote(token, safe='')}"
 
             max_age = cookie_ttl_seconds if COOKIE_SET_MAX_AGE else None
-            return _response_redirect(location, cookies, max_age)
+            return _response_redirect(event, location, cookies, max_age)
 
         # ---------------------------------------------------------------------
         # PUBLIC: GET /list?folder=...&t=...
