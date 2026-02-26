@@ -45,4 +45,9 @@ variable "gallery_policy_prefix" {
   
 }
 
+variable "thumbs_policy_prefix" {
+    type  = string
+    default = "thumbs/"
+  
+}
 

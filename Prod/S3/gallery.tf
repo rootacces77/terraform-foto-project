@@ -29,6 +29,7 @@ module "gallery-bucket" {
       # Apply to all objects (recommended if the bucket is dedicated to galleries)
       filter = {
         prefix = var.gallery_policy_prefix
+        prefix = var.thumbs_policy_prefix
       }
 
       expiration = {
