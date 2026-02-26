@@ -3,6 +3,8 @@ Register Domain
 Create OIDC/Admin
 Create Cyberduck Access Keys
 Create Budget
+Create user password
+Create CW retention days
 
 
 
@@ -11,45 +13,3 @@ Create Budget
 
 
 
-
-
-
-
-
-
-
-{
-	"Version": "2012-10-17",
-	"Statement": [
-		{
-			"Action": [
-				"s3:ListAllMyBuckets",
-				"s3:GetBucketLocation"
-			],
-			"Effect": "Allow",
-			"Resource": "*",
-			"Sid": "AllowListAllBuckets"
-		},
-		{
-			"Action": "s3:*",
-			"Effect": "Allow",
-			"Resource": [
-				"arn:aws:s3:::gallery-fotoduga/*",
-				"arn:aws:s3:::gallery-fotoduga"
-			],
-			"Sid": "AllowFullAccessToGalleryBucket"
-		},
-		{
-			"Sid": "DenyAccessToOtherBuckets",
-			"Effect": "Deny",
-			"NotAction": [
-				"s3:ListAllMyBuckets",
-				"s3:GetBucketLocation"
-			],
-			"NotResource": [
-				"arn:aws:s3:::gallery-fotoduga",
-				"arn:aws:s3:::gallery-fotoduga/*"
-			]
-		}
-	]
-}
