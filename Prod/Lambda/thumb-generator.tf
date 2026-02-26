@@ -29,7 +29,7 @@ resource "aws_lambda_function" "thumb_generator" {
     JPEG_QUALITY   = "75"
     CACHE_CONTROL  = "public, max-age=31536000, immutable"
 
-    CREATE_THUMB_FOLDER_MARKER = "true"
+    CREATE_THUMB_FOLDER_MARKER = "false"
 
     # NEW: decide when to generate thumbs
     THUMB_DECIDER_MODE            = "bytes"     # bytes | pixels
