@@ -1,4 +1,4 @@
-![Alt text](diagram/project3-fotox.png)
+![Alt text](diagram/project3-foto.png)
 
 # Secure Photo Gallery on AWS (CloudFront + S3 + Lambda + DynamoDB + Cognito)
 
