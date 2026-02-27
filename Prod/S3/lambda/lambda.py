@@ -27,12 +27,12 @@ ALLOWED_PREFIX_RAW = os.getenv("ALLOWED_FOLDER_PREFIX", "").strip().lstrip("/")
 if not ALLOWED_PREFIX_RAW:
     raise RuntimeError("ALLOWED_FOLDER_PREFIX must not be empty")
 
-# NEW: thumbs root prefix (must end with "/")
+# Prefixes (must end with "/")
+BASE_PREFIX = ALLOWED_PREFIX_RAW.strip().strip("/") + "/"              # e.g. "gallery/"
 THUMBS_PREFIX = os.getenv("THUMBS_PREFIX", "thumbs/").strip().strip("/") + "/"  # e.g. "thumbs/"
 
 DEFAULT_TTL_SECONDS = int(os.getenv("DEFAULT_TTL_SECONDS", "86400"))
 MAX_TTL_SECONDS = int(os.getenv("MAX_TTL_SECONDS", "86400"))
-
 DEFAULT_LINK_TTL_SECONDS = int(os.getenv("DEFAULT_LINK_TTL_SECONDS", str(7 * 24 * 3600)))
 
 TOKEN_TTL_BUFFER_SECONDS = int(os.getenv("TOKEN_TTL_BUFFER_SECONDS", "86400"))  # keep token item longer than link_exp
@@ -71,9 +71,6 @@ COOKIE_PATH = os.getenv("COOKIE_PATH", "/").strip()
 
 # Whether /open redirect should include ?t=token for the gallery JS to call /list securely.
 INCLUDE_TOKEN_IN_REDIRECT = os.getenv("INCLUDE_TOKEN_IN_REDIRECT", "true").lower() == "true"
-
-# Normalize base prefix once (must end with "/")
-BASE_PREFIX = ALLOWED_PREFIX_RAW.strip().strip("/") + "/"  # e.g. "gallery/"
 
 
 # =============================================================================
@@ -116,6 +113,7 @@ def _request_path(event: Dict[str, Any]) -> str:
 # =============================================================================
 def _cloudfront_url_safe_b64(data: bytes) -> str:
     s = base64.b64encode(data).decode("utf-8")
+    # CloudFront cookie-safe base64 substitutions
     return s.replace("+", "-").replace("=", "_").replace("/", "~")
 
 
@@ -138,33 +136,23 @@ def _load_private_key() -> Any:
     return key
 
 
-# NEW: policy includes BOTH gallery + thumbs
 def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
     """
-    folder is normalized like "client/job/".
-    Allows access to:
-      - /gallery/<folder>* (BASE_PREFIX)
-      - /thumbs/<folder>*  (THUMBS_PREFIX)
-    """
-    resources = [
-        f"https://{CLOUDFRONT_DOMAIN}/{BASE_PREFIX}{folder}*",
-        f"https://{CLOUDFRONT_DOMAIN}/{THUMBS_PREFIX}{folder}*",
-    ]
-    policy = {
-        "Statement": [
-            {
-                "Resource": r,
-                "Condition": {"DateLessThan": {"AWS:EpochTime": int(expires_epoch)}},
-            }
-            for r in resources
-        ]
-    }
-    return json.dumps(policy, separators=(",", ":"))
+    folder is normalized like "Client Name/Job 123/" (may contain spaces).
+    One wildcard Resource covers BOTH:
+      /gallery/<folder>*
+      /thumbs/<folder>*
+    by using: /*/<folder>*
 
-def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
-    # folder like "test678/" (already normalized)
-    folder = (folder or "").lstrip("/")
-    resource = f"https://{CLOUDFRONT_DOMAIN}/*/{folder}*"
+    NOTE: This allows ANY first-level prefix, not only gallery/thumbs.
+    """
+    folder = (folder or "").lstrip("/")  # keep trailing "/" from your stored value
+
+    # Build path: /*/<folder>*  (encode spaces -> %20, keep / and * intact)
+    path = f"/*/{folder}*"
+    enc_path = quote(path, safe="/-_.~*")
+
+    resource = f"https://{CLOUDFRONT_DOMAIN}{enc_path}"
 
     policy = {
         "Statement": [
@@ -175,12 +163,13 @@ def _build_custom_policy_for_folder(folder: str, expires_epoch: int) -> str:
         ]
     }
     return json.dumps(policy, separators=(",", ":"))
+ 
 
 
 def _sign_policy(policy_str: str) -> Tuple[str, str]:
     key = _load_private_key()
     policy_bytes = policy_str.encode("utf-8")
-    signature = key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())
+    signature = key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())  # CloudFront requires RSA-SHA1 here
     return _cloudfront_url_safe_b64(policy_bytes), _cloudfront_url_safe_b64(signature)
 
 
@@ -200,6 +189,10 @@ def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _normalize_folder(folder: str) -> str:
+    """
+    Returns normalized folder like "client/job/" (always trailing slash).
+    ✅ Allows spaces in each segment (e.g. "Something Something").
+    """
     s = (folder or "").strip()
     if not s:
         raise ValueError("folder_required")
@@ -215,10 +208,12 @@ def _normalize_folder(folder: str) -> str:
     if s.startswith(BASE_PREFIX) or s.startswith(BASE_PREFIX.rstrip("/")):
         raise ValueError("folder_must_not_include_base_prefix")
 
-    if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", s):
+    # ✅ Allow spaces in segments
+    # segment chars: letters, digits, dot, underscore, dash, space
+    if not re.fullmatch(r"[A-Za-z0-9._ -]+(?:/[A-Za-z0-9._ -]+)*", s):
         raise ValueError("invalid_folder_characters")
 
-    return f"{s}/"  # always "client/job/"
+    return f"{s}/"
 
 
 def _parse_folder_from_admin_request(event: Dict[str, Any]) -> str:
@@ -257,7 +252,7 @@ def _parse_token(event: Dict[str, Any]) -> Optional[str]:
 
     if not token:
         payload = _parse_json_body(event)
-        token = payload.get("token") or payload.get("t")
+        token = payload.get("token") or payload.get("t") or payload.get("link_token")
 
     token = (token or "").strip()
     return token or None
@@ -296,14 +291,18 @@ def _is_payload_v2(event: Dict[str, Any]) -> bool:
     return str(event.get("version", "")).strip() == "2.0"
 
 
-def _response_redirect(event: Dict[str, Any], location: str, cookies: Dict[str, str], max_age: Optional[int]) -> Dict[str, Any]:
+def _response_redirect(
+    event: Dict[str, Any],
+    location: str,
+    cookies: Dict[str, str],
+    max_age: Optional[int],
+) -> Dict[str, Any]:
     cookie_strings = []
     attrs = _cookie_attrs(max_age)
     for k, v in cookies.items():
-        # IMPORTANT: no quotes around v
         cookie_strings.append(f"{k}={v}; {attrs}")
 
-    resp = {
+    resp: Dict[str, Any] = {
         "statusCode": 302,
         "headers": {
             "Location": location,
@@ -313,12 +312,10 @@ def _response_redirect(event: Dict[str, Any], location: str, cookies: Dict[str, 
         "body": "",
     }
 
-    # ✅ Correct way to set multiple cookies depends on payload version
+    # Correct multiple cookie behavior depends on payload version
     if _is_payload_v2(event):
-        # HTTP API v2 / Lambda Function URL
         resp["cookies"] = cookie_strings
     else:
-        # REST API v1 (Lambda proxy)
         resp["multiValueHeaders"] = {"Set-Cookie": cookie_strings}
 
     return resp
@@ -357,7 +354,7 @@ def _list_folder_for_prefix(prefix: str) -> Tuple[List[str], Optional[str]]:
 
     token: Optional[str] = None
     while True:
-        args = {"Bucket": GALLERY_BUCKET, "Prefix": prefix, "MaxKeys": 1000}
+        args: Dict[str, Any] = {"Bucket": GALLERY_BUCKET, "Prefix": prefix, "MaxKeys": 1000}
         if token:
             args["ContinuationToken"] = token
 
@@ -408,7 +405,6 @@ def _ddb_get_token(token: str) -> Optional[Dict[str, Any]]:
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     method = _request_method(event)
     path = _request_path(event)
-
     wants_redirect = path.endswith(OPEN_PATH)
 
     try:
@@ -425,12 +421,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     limit = 200
 
             now = int(time.time())
-            items = []
+            items: List[Dict[str, Any]] = []
             scanned = 0
             last_key = None
 
             while True:
-                args = {"Limit": 200}
+                args: Dict[str, Any] = {"Limit": 200}
                 if last_key:
                     args["ExclusiveStartKey"] = last_key
 
@@ -448,12 +444,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     if link_exp and now > link_exp:
                         continue
 
-                    items.append({
-                        "token": token,
-                        "folder": folder,
-                        "link_exp": link_exp,
-                        "cookie_ttl_seconds": cookie_ttl,
-                    })
+                    items.append(
+                        {
+                            "token": token,
+                            "folder": folder,
+                            "link_exp": link_exp,
+                            "cookie_ttl_seconds": cookie_ttl,
+                        }
+                    )
 
                     if len(items) >= limit:
                         break
@@ -484,7 +482,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             item = {
                 "link_token": token,
-                "folder": folder,
+                "folder": folder,  # may contain spaces
                 "link_exp": int(link_exp),
                 "cookie_ttl_seconds": int(cookie_ttl_seconds),
                 "created_epoch": int(now),
@@ -494,7 +492,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             _table.put_item(Item=item, ConditionExpression="attribute_not_exists(link_token)")
 
             share_url = f"https://{CLOUDFRONT_DOMAIN}{OPEN_PATH}?t={token}"
-            return _response_json(200, {"share_url": share_url, "token": token})
+            return _response_json(200, {"share_url": share_url, "token": token, "folder": folder})
 
         # ---------------------------------------------------------------------
         # ADMIN: POST /revoke
@@ -547,7 +545,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             expires_epoch = now + cookie_ttl_seconds
 
-            # NEW: signed policy covers BOTH gallery + thumbs for this folder
+            # ✅ policy covers BOTH gallery + thumbs, and URL-encodes spaces
             policy_str = _build_custom_policy_for_folder(folder, expires_epoch)
             policy_b64, sig_b64 = _sign_policy(policy_str)
 
@@ -557,6 +555,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "CloudFront-Key-Pair-Id": CLOUDFRONT_KEY_PAIR_ID,
             }
 
+            # Put folder into query param (encoded). URLSearchParams will decode it back.
             location = f"https://{CLOUDFRONT_DOMAIN}{GALLERY_INDEX_PATH}?folder={quote(folder, safe='')}"
             if INCLUDE_TOKEN_IN_REDIRECT:
                 location += f"&t={quote(token, safe='')}"
@@ -565,7 +564,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return _response_redirect(event, location, cookies, max_age)
 
         # ---------------------------------------------------------------------
-        # PUBLIC: GET /list?folder=...&t=...
+        # PUBLIC: GET/HEAD /list?folder=...&t=...
         # ---------------------------------------------------------------------
         if method in ("GET", "HEAD") and path.endswith(LIST_PATH):
             q = event.get("queryStringParameters") or {}
@@ -596,8 +595,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if req_folder != token_folder:
                 return _response_json(403, {"error": "folder_not_allowed"})
 
-            prefix = BASE_PREFIX + req_folder
-
+            prefix = BASE_PREFIX + req_folder  # may contain spaces; S3 supports it
             files, zip_key = _list_folder_for_prefix(prefix)
 
             if method == "HEAD":
@@ -606,24 +604,24 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "headers": {
                         "Cache-Control": f"public, max-age={LIST_CACHE_TTL_SECONDS}, s-maxage={LIST_CACHE_TTL_SECONDS}"
                     },
-                    "body": ""
+                    "body": "",
                 }
 
-            out = {"folder": prefix, "files": files}
+            out: Dict[str, Any] = {"folder": prefix, "files": files}
             if zip_key:
                 out["zip"] = zip_key
 
             return _response_json(
                 200,
                 out,
-                cache_control=f"public, max-age={LIST_CACHE_TTL_SECONDS}, s-maxage={LIST_CACHE_TTL_SECONDS}"
+                cache_control=f"public, max-age={LIST_CACHE_TTL_SECONDS}, s-maxage={LIST_CACHE_TTL_SECONDS}",
             )
 
         return _response_json(404, {"error": "not_found"})
 
     except ValueError as ve:
         if wants_redirect:
-            return _redirect_error(400, "bad_request")
+            return _redirect_error(400, str(ve))
         return _response_json(400, {"error": str(ve)})
 
     except Exception as e:

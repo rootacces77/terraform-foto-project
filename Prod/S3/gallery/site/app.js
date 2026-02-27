@@ -344,13 +344,32 @@
 
     if (imgEl) {
       imgEl.style.display = "block";
-      imgEl.onerror = () => {
+
+      // Modal shows THUMB (fast). Download button still points to ORIGINAL (origUrl).
+      // If you want STRICT thumbs-only, remove ", origUrl" below.
+      const modalCandidates = [...thumbCandidates, origUrl];
+
+      let i = 0;
+      const tried = new Set();
+
+      function nextCandidate() {
         if (!isModalOpen()) return;
         if (reqId !== state.modalReqId) return;
-        const did = requestCookieRefresh(p);
-        if (!did) showToast("Ne mogu učitati sliku. Otvorite link ponovo.");
-      };
-      imgEl.src = origUrl;
+
+        while (i < modalCandidates.length && tried.has(modalCandidates[i])) i++;
+        if (i >= modalCandidates.length) {
+          const did = requestCookieRefresh(p);
+          if (!did) showToast("Ne mogu učitati thumbnail. Otvorite link ponovo.");
+          return;
+        }
+
+        const u = modalCandidates[i++];
+        tried.add(u);
+        imgEl.src = u;
+      }
+
+      imgEl.onerror = () => nextCandidate();
+      nextCandidate(); // start with thumb
     }
   }
 
